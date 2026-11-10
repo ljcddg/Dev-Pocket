@@ -17,7 +17,7 @@
 
 细节上做了这些：
 
-- **密钥加密**：API Key 经 Android Keystore 硬件加密后落盘（AES/GCM），不落明文、不参与备份（`allowBackup=false`）
+- **密钥加密**：API Key 经 Android Keystore 硬件加密后落盘（AES-256/GCM，每条记录独立随机 IV），不落明文、不参与备份（`allowBackup=false`）
 - **多密钥管理**：一个账号一张卡片，可改名、可删除，同一密钥自动去重
 - **签到日历**：最近 28 天已签到日期以蓝色格子标出，一眼看出有没有断签
 - **令牌自动续期**：accessToken 到期前静默用 refreshToken 换取新令牌，长期不用重新登录
@@ -28,7 +28,7 @@
 
 ## 安装
 
-前往 [Releases](../../releases) 下载最新的 `app-release.apk` 直接安装（需允许安装未知来源应用）。
+前往 [Releases](https://github.com/ljcddg/Dev-Pocket/releases) 下载最新的 `DevPocket-v1.5.apk` 直接安装（需允许安装未知来源应用）。
 
 - 最低支持 Android 7.0（API 24）
 - 已在 Android 模拟器上验证冷启动、签到页、积分详情页与密钥输入；尚未做真机实测
