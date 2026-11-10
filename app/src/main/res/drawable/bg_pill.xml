@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 状态徽标底色（胶囊形），运行时按状态染色 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <corners android:radius="99dp" />
+    <solid android:color="@color/white" />
+</shape>

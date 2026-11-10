@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 图标背景：DeepSeek 品牌蓝渐变 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient
+        android:angle="270"
+        android:startColor="#4D6BFE"
+        android:endColor="#8FA1FF" />
+</shape>

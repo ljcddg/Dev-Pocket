@@ -1,0 +1,19 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- 深色主题：工具栏沿用品牌蓝，文字与图标保持白色 -->
+    <style name="Theme.DSBalanceViewer" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/ds_primary_mid</item>
+        <item name="colorPrimaryVariant">@color/ds_primary</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/ds_primary_light</item>
+        <item name="colorSecondaryVariant">@color/ds_primary</item>
+        <item name="colorOnSecondary">@color/black</item>
+
+        <!-- edge-to-edge：状态栏透明，颜色由工具栏延伸补齐（刘海适配见 SystemBars） -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+
+        <item name="android:windowBackground">@color/ds_window_dark</item>
+        <item name="android:textColorSecondary">@color/ds_muted_dark</item>
+    </style>
+</resources>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/action_wb_add"
+        android:icon="@drawable/ic_add"
+        android:title="@string/wb_login_add"
+        app:showAsAction="always" />
+    <item
+        android:id="@+id/action_wb_refresh"
+        android:icon="@drawable/ic_refresh"
+        android:title="@string/action_refresh_all"
+        app:showAsAction="always" />
+</menu>

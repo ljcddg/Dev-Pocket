@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- DeepSeek 品牌色 -->
+    <color name="ds_primary">#4D6BFE</color>
+    <color name="ds_primary_dark">#3A52CC</color>
+    <color name="ds_primary_light">#8FA1FF</color>
+    <color name="ds_primary_mid">#6E85FE</color>
+    <color name="ds_on_primary">#FFFFFF</color>
+
+    <!-- 主余额渐变（详情页 hero 卡片） -->
+    <color name="ds_hero_top">#4D6BFE</color>
+    <color name="ds_hero_bottom">#7B8CFF</color>
+
+    <!-- 状态色：可用 / 不可用 / 警告 -->
+    <color name="ds_success">#12B76A</color>
+    <color name="ds_danger">#F04438</color>
+    <color name="ds_warning">#F79009</color>
+
+    <!-- 窗口与卡片：浅灰底 + 白卡片，制造层次 -->
+    <color name="ds_window_light">#F3F4F8</color>
+    <color name="ds_window_dark">#0F1115</color>
+    <color name="ds_card">#FFFFFF</color>
+    <color name="ds_divider">#1498A2B3</color>
+
+    <!-- 密钥掩码文字色，深浅色下都保持次要层级 -->
+    <color name="ds_muted_light">#667085</color>
+    <color name="ds_muted_dark">#98A2B3</color>
+
+    <!-- 兼容模板默认值 -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>

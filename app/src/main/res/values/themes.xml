@@ -1,0 +1,20 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- 浅色主题：Material Components DayNight，自动跟随系统深浅色 -->
+    <style name="Theme.DSBalanceViewer" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/ds_primary</item>
+        <item name="colorPrimaryVariant">@color/ds_primary_dark</item>
+        <item name="colorOnPrimary">@color/ds_on_primary</item>
+        <item name="colorSecondary">@color/ds_primary</item>
+        <item name="colorSecondaryVariant">@color/ds_primary_dark</item>
+        <item name="colorOnSecondary">@color/ds_on_primary</item>
+
+        <!-- edge-to-edge：状态栏透明，颜色由工具栏延伸补齐（刘海适配见 SystemBars） -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+
+        <!-- 柔和浅灰窗口底 + 次要文字色 -->
+        <item name="android:windowBackground">@color/ds_window_light</item>
+        <item name="android:textColorSecondary">@color/ds_muted_light</item>
+    </style>
+</resources>

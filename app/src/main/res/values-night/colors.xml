@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色模式下的窗口 / 卡片 / 分隔线配色 -->
+    <color name="ds_window_dark">#0F1115</color>
+    <color name="ds_card">#1B1E26</color>
+    <color name="ds_divider">#2498A2B3</color>
+</resources>

@@ -1,0 +1,31 @@
+# ===== Android / Gradle =====
+*.iml
+.gradle/
+.kotlin/
+/build
+build/
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# ===== 签名与密钥（绝不能入库，泄露等于别人能发布冒充你的升级包）=====
+key.properties
+keystore/
+*.jks
+*.keystore
+
+# ===== IDE（含本机 SDK 路径、模拟器配置，不入库）=====
+.idea/
+
+# ===== 系统 / 日志 =====
+.DS_Store
+Thumbs.db
+*.log
+build_log.txt
+release_log.txt
+
+# ===== 产物（APK 走 Release assets，不进版本库）=====
+*.apk
+*.aab
+*.ap_

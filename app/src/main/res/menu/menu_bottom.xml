@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/tab_balance"
+        android:icon="@drawable/ic_wallet"
+        android:title="@string/tab_balance" />
+    <item
+        android:id="@+id/tab_checkin"
+        android:icon="@drawable/ic_checkin"
+        android:title="@string/tab_checkin" />
+</menu>
