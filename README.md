@@ -10,15 +10,20 @@
 
 | 页面 | 能力 |
 | --- | --- |
-| **余额** | 管理多个 DeepSeek API 密钥，逐个查询账户余额（总余额 / 赠金 / 充值余额），支持一键刷新全部 |
-| **签到** | 登录 WorkBuddy 账号，查看连续签到天数、剩余额度、签到累计积分，一键领取每日积分 |
+| **余额** | 管理多个 AI 平台密钥（DeepSeek / Kimi / 智谱 GLM），逐个查询账户余额，支持一键刷新全部与定时刷新 |
+| **签到** | 登录 WorkBuddy 账号，查看连续签到天数、剩余额度、签到累计积分；单独签到，或点右上角一键签到全部未签账号 |
 | **积分详情** | 短按账号卡片进入：剩余额度、总计 / 已用、连签奖励进度、28 天签到日历、套餐明细 |
-| **设置** | 跟随系统 / 浅色 / 深色三档外观、启动时自动刷新、密钥数量与版本信息 |
+| **设置** | 自动签到（时间 / 随机浮动 / 仅工作日 / 开机恢复）、余额刷新间隔、三档外观、密钥数量与版本信息 |
 
 细节上做了这些：
 
 - **密钥加密**：API Key 经 Android Keystore 硬件加密后落盘（AES-256/GCM，每条记录独立随机 IV），不落明文、不参与备份（`allowBackup=false`）
-- **多密钥管理**：一个账号一张卡片，可改名、可删除，同一密钥自动去重
+- **三家商家**：添加密钥时选商家，App 按商家调用对应的余额接口。不做「自动识别」——DeepSeek 和 Kimi 的密钥都是 `sk-` 开头，靠前缀猜必然出错
+- **多密钥管理**：一个账号一张卡片，可改名、可删除，同一密钥自动去重，卡片上标出所属商家
+- **定时刷新**：可设 1 / 5 / 30 / 60 分钟或自定义间隔，页面停留期间按间隔轮询；离开页面立即停止，App 在后台不产生任何请求
+- **一键签到**：右上角一次点完所有账号。账号之间串行、间隔 1~3 秒，今日已签的账号在本地就跳过、不发请求，避免并发突发这种一眼能看出是脚本的节奏
+- **自动签到**：设定时间后到点自动执行。随机浮动**在调度时就算好**，不是执行时 `sleep`——Android 后台进程活不过一分钟，睡着的闹钟一定会被 Doze 掐掉；偏移用三角分布（人的作息有峰值，均匀随机反而是机器特征），周末再整体后移 25~45 分钟，秒级抖动避免每天同一秒
+- **闹钟自愈**：开机、覆盖安装、改系统时间、换时区都会重排；主闹钟后 90 分钟还挂一个补偿闹钟，失败能再试一次
 - **签到日历**：最近 28 天已签到日期以蓝色格子标出，一眼看出有没有断签
 - **令牌自动续期**：accessToken 到期前静默用 refreshToken 换取新令牌，长期不用重新登录
 - **原始数据诊断**：长按账号卡片可查看接口原始返回，接口字段变了能立刻定位
@@ -38,18 +43,37 @@
 
 ## 使用
 
-### 一、查 DeepSeek 余额
+### 一、查余额
 
-1. 到 [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) 创建一个 API Key
-2. App 内点右上角 **＋**，粘贴密钥，可顺手起个备注名（如「主力号」）
-3. 保存时 App 会先验一次余额，验通了才入库，密钥填错当场就知道
+支持三家，添加时先选商家再填密钥：
+
+| 商家 | 密钥格式 | 余额接口 |
+| --- | --- | --- |
+| DeepSeek | `sk-...` | `GET api.deepseek.com/user/balance` |
+| Kimi（月之暗面） | `sk-...` | `GET api.moonshot.cn/v1/users/me/balance` |
+| 智谱 GLM | `xxxxx.xxxxx` | `GET open.bigmodel.cn/api/paas/v4/users/me/balance` |
+
+1. 到对应平台的控制台创建 API Key
+2. App 内点右上角 **＋**，选商家，粘贴密钥，可顺手起个备注名（如「主力号」）
+3. 保存时 App 会先按所选商家真实验一次余额，验通了才入库，密钥填错或商家选错当场就知道
 4. 点卡片可展开明细，点「刷新」只查这一条，右上角刷新图标查全部
+5. 想让它自动轮询，到「设置 → 余额 → 自动刷新间隔」选 1 / 5 / 30 / 60 分钟或自定义
+
+> Kimi 有个坑：国内站 `api.moonshot.cn` 和国际站 `api.moonshot.ai` 的密钥互不通用，用错站点会直接 401。本 App 走国内站。
 
 ### 二、WorkBuddy 每日签到
 
 1. 签到页点右上角 **＋** 进入登录页
 2. 在页面里完成登录，App 每 2 秒轮询一次结果，登录成功自动返回
-3. 登录后点「签到」领今日积分，点卡片进详情看进度与日历
+3. 登录后点「签到」领今日积分，点卡片进详情看进度与日历；右上角双勾图标可对全部账号一键签到
+
+**自动签到**（设置页）：
+
+1. 打开「开启自动签到」，默认 08:00，可点时间行改成任意时刻
+2. 「随机浮动」建议保留 0–30 分钟：实际执行时刻会在设定时间前后小幅偏移，每天不一样
+3. 「开机自动恢复」控制重启后是否自动把闹钟挂回去，关掉后需要手动打开一次 App
+4. 首次开启会引导授予「闹钟和提醒」权限（Android 12+ 必需），建议同时把应用加入电池优化白名单
+5. 「立即试运行一次」可以马上验证链路，结果会显示在通知栏和「上次执行」一行
 
 **登录渠道的实际情况**（这点比较重要，能省掉不少试错）：
 
@@ -76,11 +100,12 @@
 
 ## 安全与隐私
 
-- 所有请求直连官方域名（`api.deepseek.com` / `copilot.tencent.com`），项目本身没有任何服务端
+- 所有请求直连官方域名（`api.deepseek.com` / `api.moonshot.cn` / `open.bigmodel.cn` / `copilot.tencent.com`），项目本身没有任何服务端
 - DeepSeek API Key 使用 Android Keystore 生成的工作密钥加密，密文存在应用私有目录；设备被 root 前，其他应用读不到
 - WorkBuddy 令牌（accessToken / refreshToken）同样加密存储，令牌内容仅用于调用其官方接口
 - 未接入任何统计、埋点、崩溃上报 SDK
-- 应用清单里只有两条权限：`INTERNET` 与 `ACCESS_NETWORK_STATE`
+- 应用清单里有网络与自动签到相关权限：`INTERNET`、`ACCESS_NETWORK_STATE`、`RECEIVE_BOOT_COMPLETED`、`SCHEDULE_EXACT_ALARM`、`USE_EXACT_ALARM`、`POST_NOTIFICATIONS`、`FOREGROUND_SERVICE`、`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
+- 其中 `USE_EXACT_ALARM` 在 Google Play 上有用途限制（仅限闹钟、日历类应用），本项目为侧载自用，不走商店分发
 
 **注意**：加密只能防止本机其他应用读取，无法防御已经拿到 root 权限的攻击者。请勿在他人设备上保存密钥。
 
@@ -92,7 +117,7 @@
 | --- | --- |
 | 语言 / 构建 | Kotlin，AGP 9.5.1，Gradle 9.6，JDK 25（Android Studio 自带 JBR） |
 | 最低 / 目标版本 | minSdk 24，targetSdk 37 |
-| UI | 原生 View + Material Components，ViewBinding，`BottomNavigationView` 两个 Tab |
+| UI | 原生 View + Material Components，ViewBinding，`BottomNavigationView` 三个 Tab |
 | 网络 | `HttpURLConnection` + `org.json`，无线程池外的第三方库 |
 | 加密 | Android Keystore（AES/GCM/NoPadding） |
 | 主题 | `AppCompatDelegate` 三档切换，偏好持久化到 SharedPreferences |
@@ -104,6 +129,9 @@
 | 用途 | 方法与路径 |
 | --- | --- |
 | DeepSeek 余额 | `GET https://api.deepseek.com/user/balance` |
+| Kimi 余额 | `GET https://api.moonshot.cn/v1/users/me/balance` |
+| 智谱 GLM 余额（主） | `GET https://open.bigmodel.cn/api/paas/v4/users/me/balance` |
+| 智谱 GLM 余额（回退） | `GET https://open.bigmodel.cn/api/biz/account/query-customer-account-report` |
 | 创建登录态 | `POST /v2/plugin/auth/state?platform=mobile` |
 | 轮询登录结果 | `GET /v2/plugin/auth/token?state=xxx`（未完成返回 `code=11217`） |
 | 刷新令牌 | `POST /v2/plugin/auth/token/refresh` |
@@ -149,6 +177,9 @@ export JAVA_HOME=/path/to/android-studio/jbr
 - WorkBuddy 侧的登录、签到、额度均为逆向观察所得，接口变更会导致功能失效，届时用「查看接口原始数据」排查
 - 微信系登录在 App 内无法闭环，只能用验证码
 - 签到日历只覆盖最近 28 天，取决于服务端返回的 `checkin_dates` 长度
+- 自动签到依赖系统闹钟：在设置里「强制停止」过本应用后，所有闹钟会被系统清空，需要重新打开一次 App
+- 国产 ROM（MIUI / HyperOS、EMUI、ColorOS 等）默认会拦截后台唤醒，需在「自启动管理」和「电池优化」里手动放行，否则闹钟可能不响。App 设置页顶部会提示当前状态
+- 自动签到的浮动偏移基于本地随机种子，无法规避服务端的行为审计，也不改变「这是自动化请求」这一事实
 - 不支持多语言，仅简体中文
 
 ---
@@ -157,6 +188,8 @@ export JAVA_HOME=/path/to/android-studio/jbr
 
 | 版本 | 主要变更 |
 | --- | --- |
+| **v1.7** | 新增 Kimi 与智谱 GLM 余额查询，添加密钥页可选商家；新增余额定时刷新（1/5/30/60 分钟或自定义，仅前台）；设置页按「外观 / 余额 / 自动签到 / 后台权限 / 关于」分组重排 |
+| **v1.6** | 设置从余额页工具栏移到下方导航第三个 Tab；新增一键签到（串行执行、跳过已签、Snackbar 进度）；新增自动签到（定时闹钟、随机浮动、开机恢复开关、精确闹钟与电池优化引导）；签到逻辑抽成 `CheckinEngine` 供手动与定时共用 |
 | **v1.5** | 显示真实剩余额度（不再把签到累计当余额）；新增套餐明细与「签到累计获得」；API Key 改明文输入；余额接口前缀修正并加回退 |
 | v1.4 | 签到页显示累计积分；新增积分详情页（连签进度 / 28 天日历 / 明细）；修复 Release 因 R8 优化导致的启动闪退 |
 | v1.2 | 新增三档外观切换；登录入口统一到右上角 ＋；重做登录页逻辑，修掉「点微信登录没反应」 |

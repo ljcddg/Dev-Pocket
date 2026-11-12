@@ -17,4 +17,26 @@
         <item name="android:windowBackground">@color/ds_window_light</item>
         <item name="android:textColorSecondary">@color/ds_muted_light</item>
     </style>
+
+    <!-- 设置页的分组小标题：卡片外的小字，用来把页面切成几块 -->
+    <style name="SettingsGroupTitle" parent="">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">20dp</item>
+        <item name="android:layout_marginBottom">8dp</item>
+        <item name="android:paddingStart">6dp</item>
+        <item name="android:paddingEnd">6dp</item>
+        <item name="android:textColor">?android:attr/textColorSecondary</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- 设置页卡片统一外观，避免每张卡重复写 5 个属性 -->
+    <style name="SettingsCard" parent="Widget.MaterialComponents.CardView">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="cardBackgroundColor">@color/ds_card</item>
+        <item name="cardCornerRadius">18dp</item>
+        <item name="cardElevation">0dp</item>
+    </style>
 </resources>

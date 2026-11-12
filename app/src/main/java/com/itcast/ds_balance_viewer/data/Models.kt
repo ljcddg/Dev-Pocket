@@ -30,12 +30,14 @@ data class BalanceResult(
 /**
  * 用户保存的一把 API 密钥。
  * @param secret 明文密钥，仅在内存中存在；落盘时由 SecureStore 加密
+ * @param provider 商家，决定查询哪个余额接口；没有该字段的旧数据按 DeepSeek 处理
  * @param lastTotal 等字段是上一次查询的快照，用于列表页秒开显示
  */
 data class ApiKey(
     val id: String = UUID.randomUUID().toString(),
     val alias: String,
     val secret: String,
+    val provider: Provider = Provider.DEEPSEEK,
     val lastTotal: String? = null,
     val lastGranted: String? = null,
     val lastToppedUp: String? = null,

@@ -15,6 +15,7 @@ object KeyRepository {
 
     private const val STORE_KEY = "keys_json"
     private const val AUTO_REFRESH_KEY = "auto_refresh"
+    private const val REFRESH_INTERVAL_KEY = "refresh_interval_minutes"
 
     private val cache = mutableListOf<ApiKey>()
     private var loaded = false
@@ -42,6 +43,8 @@ object KeyRepository {
                         id = obj.optString("id"),
                         alias = obj.optString("alias"),
                         secret = secret,
+                        // 旧版本没有 provider 字段，fromId 会兜底成 DeepSeek
+                        provider = Provider.fromId(obj.optString("provider")),
                         lastTotal = obj.optString("lastTotal").ifBlank { null },
                         lastGranted = obj.optString("lastGranted").ifBlank { null },
                         lastToppedUp = obj.optString("lastToppedUp").ifBlank { null },
@@ -88,6 +91,19 @@ object KeyRepository {
             SecureStore.putString(AUTO_REFRESH_KEY, value.toString())
         }
 
+    /**
+     * 自动刷新间隔（分钟）。0 表示只在打开 App / 回到前台时刷一次，
+     * 大于 0 时页面可见期间按这个间隔轮询。
+     *
+     * 只在前台轮询是有意为之：余额是给人看的，App 在后台时刷新没有任何价值，
+     * 反而会白白消耗请求次数。
+     */
+    var refreshIntervalMinutes: Int
+        get() = SecureStore.getString(REFRESH_INTERVAL_KEY)?.toIntOrNull() ?: 0
+        set(value) {
+            SecureStore.putString(REFRESH_INTERVAL_KEY, value.coerceIn(0, 24 * 60).toString())
+        }
+
     private fun persist() {
         val array = JSONArray()
         cache.forEach { key ->
@@ -95,6 +111,7 @@ object KeyRepository {
                 put("id", key.id)
                 put("alias", key.alias)
                 put("secret", SecureStore.encrypt(key.secret))
+                put("provider", key.provider.id)
                 put("lastTotal", key.lastTotal ?: "")
                 put("lastGranted", key.lastGranted ?: "")
                 put("lastToppedUp", key.lastToppedUp ?: "")

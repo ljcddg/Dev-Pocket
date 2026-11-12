@@ -31,6 +31,12 @@
 
     <!-- 添加密钥 -->
     <string name="title_add_key">添加密钥</string>
+    <string name="label_provider">商家</string>
+    <string name="label_provider_desc">决定用哪家的余额接口；三家都支持用密钥直接查询</string>
+    <string name="provider_deepseek">DeepSeek</string>
+    <string name="provider_kimi">Kimi</string>
+    <string name="provider_glm">智谱 GLM</string>
+    <string name="label_secret_hint">API 密钥（%1$s）</string>
     <string name="label_alias">备注名（可留空）</string>
     <string name="hint_alias">例如：主账户、测试号</string>
     <string name="label_secret">API 密钥</string>
@@ -72,6 +78,18 @@
     <string name="theme_dark">深色模式</string>
     <string name="settings_auto_refresh">启动时自动刷新</string>
     <string name="settings_auto_refresh_desc">打开 App 时自动查询所有密钥的余额</string>
+    <string name="settings_refresh_interval">自动刷新间隔</string>
+    <string name="settings_refresh_interval_desc">页面停留期间按此间隔重新查询，离开页面立即停止</string>
+    <string name="refresh_interval_off">仅打开时刷新</string>
+    <string name="refresh_interval_1">每 1 分钟</string>
+    <string name="refresh_interval_5">每 5 分钟</string>
+    <string name="refresh_interval_30">每 30 分钟</string>
+    <string name="refresh_interval_60">每 60 分钟</string>
+    <string name="refresh_interval_label">%1$d 分钟</string>
+    <string name="refresh_interval_custom">自定义…</string>
+    <string name="settings_group_balance">余额</string>
+    <string name="settings_group_checkin">自动签到</string>
+    <string name="settings_group_permission">后台权限</string>
     <string name="settings_key_count">已保存 %1$d 个密钥</string>
     <string name="settings_about">关于</string>
     <string name="settings_version">版本 %1$s</string>
@@ -89,8 +107,20 @@
     <!-- 底部导航 -->
     <string name="tab_balance">余额</string>
     <string name="tab_checkin">签到</string>
+    <string name="tab_settings">设置</string>
     <string name="title_balance">DeepSeek 余额</string>
     <string name="title_checkin">WorkBuddy 签到</string>
+
+    <!-- 一键签到 -->
+    <string name="action_checkin_all">一键签到</string>
+    <string name="wb_checkin_no_account">还没有可签到的账号，请先登录</string>
+    <string name="wb_checkin_running">正在签到中，请稍候</string>
+    <string name="wb_checkin_progress">正在签到 %1$d/%2$d…</string>
+    <string name="wb_checkin_all_done">今天的账号都已经签过了</string>
+    <string name="wb_checkin_result">签到完成：%1$d 个账号共领取 %2$d 积分</string>
+    <string name="wb_checkin_result_nocredit">签到完成：%1$d 个账号已领取</string>
+    <string name="wb_checkin_result_skipped">，%1$d 个今日已签</string>
+    <string name="wb_checkin_result_failed">，%1$d 个失败</string>
 
     <!-- WorkBuddy 签到 -->
     <string name="wb_empty_title">还没有 WorkBuddy 账号</string>
@@ -183,4 +213,39 @@
     <string name="wb_refreshed">已刷新 %1$d 个账号</string>
     <string name="wb_api_error">接口返回异常：%1$s</string>
     <string name="wb_network">无法连接 copilot.tencent.com，请检查网络或代理</string>
+
+    <!-- 自动签到 -->
+    <string name="settings_auto_checkin">自动签到</string>
+    <string name="settings_auto_checkin_desc">到点自动领取今日积分，执行时会在通知栏短暂显示进度</string>
+    <string name="auto_checkin_switch">开启自动签到</string>
+    <string name="auto_checkin_time_label">签到时间</string>
+    <string name="auto_checkin_jitter_label">随机浮动</string>
+    <string name="auto_checkin_jitter_desc">在设定时间前后随机偏移，避免每天固定同一秒</string>
+    <string name="auto_checkin_jitter_off">不浮动</string>
+    <string name="auto_checkin_jitter_30">0 – 30 分钟</string>
+    <string name="auto_checkin_jitter_60">0 – 60 分钟</string>
+    <string name="auto_checkin_weekday">仅工作日</string>
+    <string name="auto_checkin_boot">开机自动恢复</string>
+    <string name="auto_checkin_boot_desc">重启手机后自动把签到闹钟挂回去。关掉后需要手动打开一次本应用</string>
+    <string name="auto_checkin_boot_hint">若系统「自启动管理」未放行本应用，上面的开关可能不生效</string>
+    <string name="auto_checkin_notify">执行后通知</string>
+    <string name="auto_checkin_next">下次执行：%1$s</string>
+    <string name="auto_checkin_never">下次执行：未排期</string>
+    <string name="auto_checkin_last">上次执行：%1$s</string>
+    <string name="auto_checkin_run_now">立即试运行一次</string>
+    <string name="auto_checkin_run_now_started">已开始执行，可在通知栏查看进度</string>
+    <string name="auto_checkin_need_account">还没有 WorkBuddy 账号，先去签到页登录</string>
+    <string name="auto_checkin_perm_ok">精确闹钟与电池优化均已就绪</string>
+    <string name="auto_checkin_perm_exact">未授予「闹钟和提醒」权限，签到时间可能被系统推迟</string>
+    <string name="auto_checkin_perm_battery">建议加入电池优化白名单，否则深度休眠时闹钟可能不响</string>
+    <string name="action_grant">去设置</string>
+    <string name="auto_checkin_channel">自动签到</string>
+    <string name="auto_checkin_channel_desc">自动签到的执行状态与结果</string>
+    <string name="auto_checkin_running_title">正在签到</string>
+    <string name="auto_checkin_running_text">正在领取今日积分…</string>
+    <string name="auto_checkin_result_title">签到结果</string>
+    <string name="auto_checkin_skipped">今日已签到，跳过</string>
+    <string name="auto_checkin_boot_disabled">开机自启动已关闭，请打开应用恢复</string>
+    <string name="auto_checkin_nothing">没有需要签到的账号</string>
+    <string name="auto_checkin_blocked">系统限制了后台启动，请打开应用手动签到</string>
 </resources>

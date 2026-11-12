@@ -2,6 +2,8 @@ package com.itcast.ds_balance_viewer.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.view.LayoutInflater
 import android.view.View
@@ -15,16 +17,22 @@ import com.itcast.ds_balance_viewer.R
 import com.itcast.ds_balance_viewer.data.ApiKey
 import com.itcast.ds_balance_viewer.data.KeyRepository
 import com.itcast.ds_balance_viewer.databinding.FragmentBalanceBinding
-import com.itcast.ds_balance_viewer.net.DeepSeekClient
+import com.itcast.ds_balance_viewer.net.BalanceClient
 import com.itcast.ds_balance_viewer.util.AppExecutors
 import com.itcast.ds_balance_viewer.util.ErrorText
 import com.itcast.ds_balance_viewer.util.SystemBars
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * 「余额」Tab：DeepSeek 密钥列表。
+ * 「余额」Tab：DeepSeek / Kimi / 智谱 GLM 的密钥列表。
  *
  * 交互沿用原首页：点卡片进详情、长按弹菜单、工具栏刷新全部、工具栏 ＋ 添加。
+ *
+ * 刷新时机有两层：
+ *  - 回到前台且距离上次超过 30 秒，静默刷一次（打开 App 就能看到新数字）
+ *  - 页面可见期间按用户在设置里选的间隔轮询，间隔为 0 时不轮询
+ * 离开页面立刻停掉 ticker，App 在后台不做任何请求。
  */
 class BalanceFragment : Fragment() {
 
@@ -33,6 +41,18 @@ class BalanceFragment : Fragment() {
 
     private lateinit var adapter: KeyAdapter
     private var lastRefreshAt = 0L
+
+    /** 防止轮询间隔很短时上一轮还没跑完又开一轮 */
+    private val refreshing = AtomicBoolean(false)
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val ticker = object : Runnable {
+        override fun run() {
+            if (_binding == null) return
+            if (KeyRepository.count() > 0 && !refreshing.get()) refreshAll(silent = true)
+            scheduleTick()
+        }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -63,10 +83,6 @@ class BalanceFragment : Fragment() {
                     refreshAll(silent = false)
                     true
                 }
-                R.id.action_settings -> {
-                    startActivity(Intent(requireContext(), SettingsActivity::class.java))
-                    true
-                }
                 else -> false
             }
         }
@@ -80,11 +96,27 @@ class BalanceFragment : Fragment() {
                 KeyRepository.count() > 0 &&
                 System.currentTimeMillis() - lastRefreshAt > 30_000L
         if (shouldAutoRefresh) refreshAll(silent = true)
+        scheduleTick()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // 离开页面就停掉轮询，后台不产生任何请求
+        handler.removeCallbacks(ticker)
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
+        handler.removeCallbacks(ticker)
         _binding = null
+    }
+
+    /** 按设置里的间隔排下一次刷新；0 表示只在回到前台时刷一次 */
+    private fun scheduleTick() {
+        handler.removeCallbacks(ticker)
+        val minutes = KeyRepository.refreshIntervalMinutes
+        if (minutes <= 0) return
+        handler.postDelayed(ticker, minutes * 60_000L)
     }
 
     private fun reloadList() {
@@ -99,6 +131,7 @@ class BalanceFragment : Fragment() {
         val list = KeyRepository.all()
         if (list.isEmpty()) return
         val context = context ?: return
+        if (!refreshing.compareAndSet(false, true)) return
 
         if (!silent) Toast.makeText(context, R.string.refreshing, Toast.LENGTH_SHORT).show()
 
@@ -107,10 +140,10 @@ class BalanceFragment : Fragment() {
 
         list.forEach { key ->
             AppExecutors.io.execute {
-                val result = DeepSeekClient.query(key.secret)
+                val result = BalanceClient.query(key.provider, key.secret)
                 AppExecutors.main {
                     when (result) {
-                        is DeepSeekClient.Result.Ok -> {
+                        is BalanceClient.Result.Ok -> {
                             val primary = result.balance.primary
                             KeyRepository.update(
                                 key.copy(
@@ -123,10 +156,11 @@ class BalanceFragment : Fragment() {
                                 )
                             )
                         }
-                        is DeepSeekClient.Result.Error -> failed.incrementAndGet()
+                        is BalanceClient.Result.Error -> failed.incrementAndGet()
                     }
 
                     if (finished.incrementAndGet() == list.size) {
+                        refreshing.set(false)
                         lastRefreshAt = System.currentTimeMillis()
                         if (_binding != null) reloadList()
                         if (!silent) {
@@ -177,10 +211,10 @@ class BalanceFragment : Fragment() {
 
     private fun refreshSingle(key: ApiKey) {
         AppExecutors.io.execute {
-            val result = DeepSeekClient.query(key.secret)
+            val result = BalanceClient.query(key.provider, key.secret)
             AppExecutors.main {
                 when (result) {
-                    is DeepSeekClient.Result.Ok -> {
+                    is BalanceClient.Result.Ok -> {
                         val primary = result.balance.primary
                         KeyRepository.update(
                             key.copy(
@@ -193,7 +227,7 @@ class BalanceFragment : Fragment() {
                             )
                         )
                     }
-                    is DeepSeekClient.Result.Error -> {
+                    is BalanceClient.Result.Error -> {
                         val ctx = context ?: return@main
                         Toast.makeText(ctx, ErrorText.of(ctx, result), Toast.LENGTH_LONG).show()
                     }

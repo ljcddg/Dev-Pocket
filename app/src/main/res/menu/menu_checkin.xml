@@ -1,11 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
+    <!-- 一键签到：对今日未签的账号逐个执行，点一次即可 -->
+    <item
+        android:id="@+id/action_checkin_all"
+        android:icon="@drawable/ic_checkin_all"
+        android:title="@string/action_checkin_all"
+        app:showAsAction="always" />
     <item
         android:id="@+id/action_wb_add"
         android:icon="@drawable/ic_add"
         android:title="@string/wb_login_add"
         app:showAsAction="always" />
+    <!-- 与余额页保持一致：刷新常驻工具栏 -->
     <item
         android:id="@+id/action_wb_refresh"
         android:icon="@drawable/ic_refresh"

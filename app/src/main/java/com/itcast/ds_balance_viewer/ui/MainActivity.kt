@@ -9,9 +9,10 @@ import com.itcast.ds_balance_viewer.R
 import com.itcast.ds_balance_viewer.databinding.ActivityMainBinding
 
 /**
- * 主界面：底部导航 + 两个 Tab。
+ * 主界面：底部导航 + 三个 Tab。
  *
- * 「余额」放 DeepSeek 密钥管理，「签到」放 WorkBuddy 账号签到。
+ * 「余额」放 DeepSeek 密钥管理，「签到」放 WorkBuddy 账号签到，
+ * 「设置」原先挂在余额页工具栏的齿轮里，现在独立成一个 Tab。
  * 用 show/hide 切换 Fragment 而不是 replace，切回来时列表状态和滚动位置都还在。
  */
 class MainActivity : AppCompatActivity() {
@@ -20,6 +21,7 @@ class MainActivity : AppCompatActivity() {
 
     private val tagBalance = "frag_balance"
     private val tagCheckin = "frag_checkin"
+    private val tagSettings = "frag_settings"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,6 +43,10 @@ class MainActivity : AppCompatActivity() {
                 }
                 R.id.tab_checkin -> {
                     showTab(tagCheckin) { CheckinFragment() }
+                    true
+                }
+                R.id.tab_settings -> {
+                    showTab(tagSettings) { SettingsFragment() }
                     true
                 }
                 else -> false

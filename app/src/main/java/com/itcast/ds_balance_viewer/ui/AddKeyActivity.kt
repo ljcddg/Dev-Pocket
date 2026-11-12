@@ -8,8 +8,9 @@ import androidx.appcompat.app.AppCompatActivity
 import com.itcast.ds_balance_viewer.R
 import com.itcast.ds_balance_viewer.data.ApiKey
 import com.itcast.ds_balance_viewer.data.KeyRepository
+import com.itcast.ds_balance_viewer.data.Provider
 import com.itcast.ds_balance_viewer.databinding.ActivityAddKeyBinding
-import com.itcast.ds_balance_viewer.net.DeepSeekClient
+import com.itcast.ds_balance_viewer.net.BalanceClient
 import com.itcast.ds_balance_viewer.util.AppExecutors
 import com.itcast.ds_balance_viewer.util.ErrorText
 import com.itcast.ds_balance_viewer.util.SystemBars
@@ -17,8 +18,11 @@ import com.itcast.ds_balance_viewer.util.SystemBars
 /**
  * 添加密钥页。
  *
- * 保存前会先真实请求一次余额接口做校验：只有密钥有效才落盘，
- * 避免用户存进一堆打错的密钥，回头列表里全是红色的"不可用"。
+ * 先选商家，再填密钥：商家决定用哪家的余额接口，三家都要在保存时真实验一次，
+ * 只有通了才落盘——避免用户存进一堆打错的密钥，回头列表里全是红色「不可用」。
+ *
+ * 商家没有做「自动识别」：Kimi 和 DeepSeek 的密钥都是 sk- 开头，长得一样，
+ * 靠前缀猜必然出错，不如让用户明确选一次，代价只有一次点击。
  */
 class AddKeyActivity : AppCompatActivity() {
 
@@ -33,6 +37,23 @@ class AddKeyActivity : AppCompatActivity() {
         binding.toolbar.setNavigationOnClickListener { finish() }
         binding.btnPaste.setOnClickListener { pasteFromClipboard() }
         binding.btnSave.setOnClickListener { validateAndSave() }
+
+        // 默认选中 DeepSeek，与之前只有 DeepSeek 时的习惯保持一致
+        binding.chipProvider.check(R.id.chipDeepSeek)
+        binding.chipProvider.setOnCheckedStateChangeListener { _, _ ->
+            updateSecretHint(selectedProvider())
+        }
+        updateSecretHint(Provider.DEEPSEEK)
+    }
+
+    private fun selectedProvider(): Provider = when (binding.chipProvider.checkedChipId) {
+        R.id.chipKimi -> Provider.KIMI
+        R.id.chipGlm -> Provider.GLM
+        else -> Provider.DEEPSEEK
+    }
+
+    private fun updateSecretHint(provider: Provider) {
+        binding.secretLayout.hint = getString(R.string.label_secret_hint, provider.keyHint)
     }
 
     private fun pasteFromClipboard() {
@@ -53,31 +74,14 @@ class AddKeyActivity : AppCompatActivity() {
 
     private fun validateAndSave() {
         val secret = binding.etSecret.text?.toString()?.trim().orEmpty()
-
-        // === 临时演示代码（验证完删除）===
-        if (secret.startsWith("sk-demo")) {
-            val alias = binding.etAlias.text?.toString()?.trim().orEmpty()
-            val demo = if (secret.endsWith("2")) {
-                ApiKey(alias = alias, secret = secret, lastTotal = "0.00", lastGranted = "0.00",
-                    lastToppedUp = "0.00", lastCurrency = "CNY", lastAvailable = false,
-                    lastUpdated = System.currentTimeMillis())
-            } else {
-                ApiKey(alias = alias, secret = secret, lastTotal = "23.94", lastGranted = "0.00",
-                    lastToppedUp = "23.94", lastCurrency = "CNY", lastAvailable = true,
-                    lastUpdated = System.currentTimeMillis())
-            }
-            KeyRepository.add(demo)
-            finish()
-            return
-        }
-        // === 临时演示代码结束 ===
+        val provider = selectedProvider()
 
         // 本地前置校验，减少无谓的网络请求
         if (secret.isEmpty()) {
             showError(getString(R.string.secret_empty))
             return
         }
-        if (secret.length < 20) {
+        if (secret.length < 16) {
             showError(getString(R.string.secret_format_hint))
             return
         }
@@ -90,17 +94,18 @@ class AddKeyActivity : AppCompatActivity() {
         setLoading(true)
 
         AppExecutors.io.execute {
-            val result = DeepSeekClient.query(secret)
+            val result = BalanceClient.query(provider, secret)
             AppExecutors.main {
                 setLoading(false)
                 when (result) {
-                    is DeepSeekClient.Result.Ok -> {
+                    is BalanceClient.Result.Ok -> {
                         val alias = binding.etAlias.text?.toString()?.trim().orEmpty()
                         val primary = result.balance.primary
                         KeyRepository.add(
                             ApiKey(
                                 alias = alias,
                                 secret = secret,
+                                provider = provider,
                                 lastTotal = primary?.total,
                                 lastGranted = primary?.granted,
                                 lastToppedUp = primary?.toppedUp,
@@ -113,7 +118,7 @@ class AddKeyActivity : AppCompatActivity() {
                         setResult(RESULT_OK)
                         finish()
                     }
-                    is DeepSeekClient.Result.Error -> {
+                    is BalanceClient.Result.Error -> {
                         showError(ErrorText.of(this, result))
                     }
                 }

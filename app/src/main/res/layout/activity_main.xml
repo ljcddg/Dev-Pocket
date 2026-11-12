@@ -5,7 +5,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
-    <!-- 两个 Tab 的页面容器，由 MainActivity 切换 Fragment -->
+    <!-- 三个 Tab 的页面容器，由 MainActivity 切换 Fragment -->
     <FrameLayout
         android:id="@+id/fragmentContainer"
         android:layout_width="match_parent"

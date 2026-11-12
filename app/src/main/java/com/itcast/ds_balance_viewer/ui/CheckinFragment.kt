@@ -18,19 +18,24 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.snackbar.Snackbar
 import com.itcast.ds_balance_viewer.R
+import com.itcast.ds_balance_viewer.data.CheckinEngine
 import com.itcast.ds_balance_viewer.data.WbAccount
 import com.itcast.ds_balance_viewer.data.WbRepository
 import com.itcast.ds_balance_viewer.data.WbSession
 import com.itcast.ds_balance_viewer.databinding.FragmentCheckinBinding
 import com.itcast.ds_balance_viewer.net.WorkBuddyClient
 import com.itcast.ds_balance_viewer.util.AppExecutors
-import com.itcast.ds_balance_viewer.util.Formatting
 import com.itcast.ds_balance_viewer.util.SystemBars
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * 「签到」Tab：WorkBuddy 账号列表 + 一键签到。
+ *
+ * 签到逻辑本身不在这个类里，全部委托给 [CheckinEngine]：
+ * 卡片上的按钮走 [CheckinEngine.runSingle]，右上角一键签到走 [CheckinEngine.runAll]。
+ * 这样后续的定时签到（没有 Activity、没有 Context）可以复用同一份实现。
  *
  * 令牌策略：
  * - accessToken 有效期 30 天，快到期（<5 分钟）或接口返回 401 时，先用 refreshToken 续期再重试一次
@@ -44,6 +49,9 @@ class CheckinFragment : Fragment() {
 
     private lateinit var adapter: WbAccountAdapter
     private var lastRefreshAt = 0L
+
+    /** 批量签到期间常驻的进度条，结束时统一 dismiss */
+    private var batchBar: Snackbar? = null
 
     /** 登录页返回后自动刷新列表 */
     private val loginLauncher = registerForActivityResult(
@@ -76,12 +84,16 @@ class CheckinFragment : Fragment() {
 
         binding.toolbar.setOnMenuItemClickListener { item ->
             when (item.itemId) {
-                R.id.action_wb_refresh -> {
-                    refreshAllStatus(silent = false)
+                R.id.action_checkin_all -> {
+                    checkinAll()
                     true
                 }
                 R.id.action_wb_add -> {
                     openLogin()
+                    true
+                }
+                R.id.action_wb_refresh -> {
+                    refreshAllStatus(silent = false)
                     true
                 }
                 else -> false
@@ -93,13 +105,18 @@ class CheckinFragment : Fragment() {
         super.onResume()
         if (_binding == null) return
         reloadList()
+        // 切走再切回来时，批量任务可能还在后台跑，按钮状态要跟着恢复
+        setBatchRunning(CheckinEngine.isRunning())
         val shouldAutoRefresh = WbRepository.count() > 0 &&
+                !CheckinEngine.isRunning() &&
                 System.currentTimeMillis() - lastRefreshAt > 30_000L
         if (shouldAutoRefresh) refreshAllStatus(silent = true)
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
+        batchBar?.dismiss()
+        batchBar = null
         _binding = null
     }
 
@@ -125,56 +142,119 @@ class CheckinFragment : Fragment() {
         )
     }
 
-    // ---------------- 签到 ----------------
+    // ---------------- 一键签到 ----------------
+
+    /**
+     * 对「今日未签」的账号逐个签到。
+     *
+     * 串行执行是有意为之：并发打同一个接口是最典型的脚本特征，而且 claim 是写操作，
+     * 串行才能保证每个账号的状态干净。已签的账号由 [CheckinEngine] 在本地过滤掉，
+     * 不会浪费请求。
+     */
+    private fun checkinAll() {
+        val ctx = context ?: return
+        if (WbRepository.count() == 0) {
+            Toast.makeText(ctx, R.string.wb_checkin_no_account, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (CheckinEngine.isRunning()) {
+            Toast.makeText(ctx, R.string.wb_checkin_running, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val total = WbRepository.count()
+        setBatchRunning(true)
+        val bar = Snackbar.make(
+            binding.root,
+            getString(R.string.wb_checkin_progress, 0, total),
+            Snackbar.LENGTH_INDEFINITE
+        ).apply { show() }
+        batchBar = bar
+
+        AppExecutors.checkin.execute {
+            // 进度回调已经切回主线程，直接改 UI 是安全的
+            val report = CheckinEngine.runAll(CheckinEngine.Trigger.MANUAL) { done, sum, _, _ ->
+                batchBar?.setText(getString(R.string.wb_checkin_progress, done, sum))
+                if (_binding != null) reloadList()
+            }
+            AppExecutors.main {
+                batchBar?.dismiss()
+                batchBar = null
+                setBatchRunning(false)
+                if (_binding != null) reloadList()
+                lastRefreshAt = System.currentTimeMillis()
+                context?.let { Toast.makeText(it, summarize(report), Toast.LENGTH_LONG).show() }
+            }
+        }
+    }
+
+    private fun setBatchRunning(running: Boolean) {
+        val item = _binding?.toolbar?.menu?.findItem(R.id.action_checkin_all) ?: return
+        item.isEnabled = !running
+    }
+
+    /** 把批量结果拼成一句话：领到的、已签的、失败的分别计数 */
+    private fun summarize(report: Map<String, CheckinEngine.Result>): String {
+        if (report.isEmpty()) return getString(R.string.wb_checkin_all_done)
+
+        var claimed = 0
+        var credit = 0
+        var skipped = 0
+        var failed = 0
+        report.values.forEach { result ->
+            when (result) {
+                is CheckinEngine.Result.Claimed -> {
+                    claimed++
+                    credit += result.credit
+                }
+                CheckinEngine.Result.AlreadyDone -> skipped++
+                is CheckinEngine.Result.Failed -> failed++
+            }
+        }
+
+        val text = StringBuilder()
+        if (claimed > 0) {
+            text.append(
+                if (credit > 0) getString(R.string.wb_checkin_result, claimed, credit)
+                else getString(R.string.wb_checkin_result_nocredit, claimed)
+            )
+        }
+        if (skipped > 0) text.append(getString(R.string.wb_checkin_result_skipped, skipped))
+        if (failed > 0) text.append(getString(R.string.wb_checkin_result_failed, failed))
+        return if (text.isEmpty()) getString(R.string.wb_checkin_all_done) else text.toString()
+    }
+
+    // ---------------- 单个签到 ----------------
 
     private fun doCheckin(account: WbAccount) {
         val ctx = context ?: return
         Toast.makeText(ctx, R.string.wb_checking, Toast.LENGTH_SHORT).show()
 
-        AppExecutors.io.execute {
-            val ready = WbSession.ensureToken(account)
-            if (ready == null) {
-                AppExecutors.main {
-                    context?.let { Toast.makeText(it, R.string.wb_expired, Toast.LENGTH_LONG).show() }
-                }
-                return@execute
-            }
-
-            val claim = WorkBuddyClient.claim(ready.accessToken, ready.uid, ready.domain)
-            val status = WorkBuddyClient.checkinStatus(ready.accessToken, ready.uid, ready.domain)
-            // 签到会加额度，余额要一起刷新才看得到变化
-            val credit = WorkBuddyClient.creditSummary(ready.accessToken, ready.uid, ready.domain)
-
+        AppExecutors.checkin.execute {
+            val result = CheckinEngine.runSingle(account)
             AppExecutors.main {
-                val ctx2 = context ?: return@main
-                when (claim) {
-                    is WorkBuddyClient.Res.Ok -> {
-                        val r = claim.value
-                        val msg = when {
-                            r.alreadyCheckedIn -> getString(R.string.wb_claim_already)
-                            r.credit > 0 -> getString(R.string.wb_claim_success, r.credit)
-                            else -> getString(R.string.wb_checked_today)
-                        }
-                        Toast.makeText(ctx2, msg, Toast.LENGTH_SHORT).show()
-                    }
-                    is WorkBuddyClient.Res.Err -> {
-                        Toast.makeText(ctx2, describe(claim.error), Toast.LENGTH_LONG).show()
-                    }
+                val target = context ?: return@main
+                val msg = when (result) {
+                    null -> getString(R.string.wb_checkin_running)
+                    is CheckinEngine.Result.Claimed ->
+                        if (result.credit > 0) getString(R.string.wb_claim_success, result.credit)
+                        else getString(R.string.wb_checked_today)
+                    CheckinEngine.Result.AlreadyDone -> getString(R.string.wb_claim_already)
+                    is CheckinEngine.Result.Failed -> describeFail(result)
                 }
-
-                // 无论领取结果如何，都用最新状态刷新卡片；两个接口各管各的，互不覆盖
-                var updated = ready
-                if (status is WorkBuddyClient.Res.Ok) {
-                    updated = WbSession.merge(updated, status.value)
-                }
-                if (credit is WorkBuddyClient.Res.Ok) {
-                    updated = WbSession.mergeBalance(updated, credit.value)
-                }
-                WbRepository.update(updated)
+                Toast.makeText(target, msg, Toast.LENGTH_SHORT).show()
                 if (_binding != null) reloadList()
                 lastRefreshAt = System.currentTimeMillis()
             }
         }
+    }
+
+    private fun describeFail(fail: CheckinEngine.Result.Failed): String = when (fail.kind) {
+        CheckinEngine.Fail.EXPIRED -> getString(R.string.wb_expired)
+        CheckinEngine.Fail.TIMEOUT -> getString(R.string.err_timeout)
+        CheckinEngine.Fail.NETWORK -> getString(R.string.wb_network)
+        CheckinEngine.Fail.PARSE -> getString(R.string.err_parse)
+        CheckinEngine.Fail.BUSINESS -> getString(R.string.wb_api_error, fail.detail)
     }
 
     // ---------------- 状态刷新 ----------------
@@ -183,6 +263,8 @@ class CheckinFragment : Fragment() {
         val list = WbRepository.all()
         if (list.isEmpty()) return
         val ctx = context ?: return
+        // 批量签到在跑时不要插进来抢令牌，等它结束再说
+        if (CheckinEngine.isRunning()) return
         if (!silent) Toast.makeText(ctx, R.string.wb_refreshing, Toast.LENGTH_SHORT).show()
 
         val finished = AtomicInteger(0)
@@ -347,7 +429,7 @@ class CheckinFragment : Fragment() {
             .show()
     }
 
-    // ---------------- 错误文案 ----------------
+    // ---------------- 错误文案（刷新路径） ----------------
 
     private fun describe(error: WorkBuddyClient.ApiError): String = when (error) {
         WorkBuddyClient.ApiError.Timeout -> getString(R.string.err_timeout)

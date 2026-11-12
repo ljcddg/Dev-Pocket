@@ -8,4 +8,8 @@
         android:id="@+id/tab_checkin"
         android:icon="@drawable/ic_checkin"
         android:title="@string/tab_checkin" />
+    <item
+        android:id="@+id/tab_settings"
+        android:icon="@drawable/ic_settings"
+        android:title="@string/tab_settings" />
 </menu>

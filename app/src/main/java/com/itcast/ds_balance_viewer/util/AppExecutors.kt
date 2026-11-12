@@ -14,6 +14,12 @@ object AppExecutors {
     /** 固定 4 个线程，够并发刷新几个密钥又不至于把手机线程占满 */
     val io: ExecutorService = Executors.newFixedThreadPool(4)
 
+    /**
+     * 签到专用单线程池。批量签到必须串行、且账号之间要 sleep，
+     * 丢进 [io] 会长期占住 4 个线程里的一个，把余额刷新饿死。
+     */
+    val checkin: ExecutorService = Executors.newSingleThreadExecutor()
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
     fun main(block: () -> Unit) {

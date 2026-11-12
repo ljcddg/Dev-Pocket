@@ -15,7 +15,7 @@ import com.itcast.ds_balance_viewer.data.ApiKey
 import com.itcast.ds_balance_viewer.data.BalanceResult
 import com.itcast.ds_balance_viewer.data.KeyRepository
 import com.itcast.ds_balance_viewer.databinding.ActivityDetailBinding
-import com.itcast.ds_balance_viewer.net.DeepSeekClient
+import com.itcast.ds_balance_viewer.net.BalanceClient
 import com.itcast.ds_balance_viewer.util.AppExecutors
 import com.itcast.ds_balance_viewer.util.ErrorText
 import com.itcast.ds_balance_viewer.util.Formatting
@@ -113,14 +113,14 @@ class DetailActivity : AppCompatActivity() {
             getString(R.string.never_updated)
         }
 
-        // 状态行：币种 · 可用状态
+        // 状态行：商家 · 币种 · 可用状态
         val currency = current.lastCurrency ?: getString(R.string.currency_unknown)
         val statusText = when (current.lastAvailable) {
             true -> getString(R.string.status_available)
             false -> getString(R.string.status_unavailable)
             null -> getString(R.string.status_unknown)
         }
-        binding.tvStatus.text = "$currency · $statusText"
+        binding.tvStatus.text = "${current.provider.shortName} · $currency · $statusText"
     }
 
     private fun refresh() {
@@ -129,13 +129,13 @@ class DetailActivity : AppCompatActivity() {
         binding.btnRefresh.text = getString(R.string.status_querying)
 
         AppExecutors.io.execute {
-            val result = DeepSeekClient.query(current.secret)
+            val result = BalanceClient.query(current.provider, current.secret)
             AppExecutors.main {
                 binding.btnRefresh.isEnabled = true
                 binding.btnRefresh.setText(R.string.action_refresh_now)
 
                 when (result) {
-                    is DeepSeekClient.Result.Ok -> {
+                    is BalanceClient.Result.Ok -> {
                         val balance = result.balance
                         val primary = balance.primary
                         val updated = current.copy(
@@ -152,7 +152,7 @@ class DetailActivity : AppCompatActivity() {
                         render()
                         renderRaw()
                     }
-                    is DeepSeekClient.Result.Error -> {
+                    is BalanceClient.Result.Error -> {
                         Toast.makeText(this, ErrorText.of(this, result), Toast.LENGTH_LONG).show()
                     }
                 }

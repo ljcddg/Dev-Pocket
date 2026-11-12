@@ -13,10 +13,4 @@
         android:icon="@drawable/ic_refresh"
         android:title="@string/action_refresh_all"
         app:showAsAction="always" />
-
-    <item
-        android:id="@+id/action_settings"
-        android:icon="@drawable/ic_settings"
-        android:title="@string/action_settings"
-        app:showAsAction="always" />
 </menu>

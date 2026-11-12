@@ -7,6 +7,19 @@
     <!-- 用于快速判断网络状态，给出更准确的错误提示 -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- 自动签到：开机后恢复闹钟 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 自动签到：精确闹钟。SCHEDULE_EXACT_ALARM 需要用户在系统设置里授权，
+         USE_EXACT_ALARM 由系统自动授予（Google Play 对它有用途限制，本项目为侧载自用） -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- 自动签到：Android 13+ 发结果通知需要运行时授权 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 自动签到：执行窗口使用短时前台服务 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- 自动签到：引导用户把应用加入电池优化白名单 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <application
         android:name=".DsApp"
         android:allowBackup="false"
@@ -38,9 +51,7 @@
             android:name=".ui.DetailActivity"
             android:exported="false" />
 
-        <activity
-            android:name=".ui.SettingsActivity"
-            android:exported="false" />
+        <!-- 设置已并入底部导航的 Tab（SettingsFragment），不再单独开 Activity -->
 
         <!-- WorkBuddy 登录页（内嵌 WebView） -->
         <activity
@@ -52,6 +63,30 @@
         <activity
             android:name=".ui.WbDetailActivity"
             android:exported="false" />
+
+        <!-- 自动签到：闹钟触发入口，只由 AlarmManager 唤起，不需要对外暴露 -->
+        <receiver
+            android:name=".checkin.CheckinAlarmReceiver"
+            android:exported="false" />
+
+        <!-- 自动签到：开机 / 覆盖安装 / 改时间 / 换时区后重排闹钟 -->
+        <receiver
+            android:name=".checkin.CheckinBootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 自动签到：短时前台服务，3 分钟上限足够跑完几次请求 -->
+        <service
+            android:name=".checkin.CheckinService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
     </application>
 
 </manifest>

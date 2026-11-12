@@ -46,6 +46,7 @@ class KeyAdapter(
             val context = binding.root.context
 
             binding.tvAlias.text = key.displayName()
+            binding.tvProvider.text = key.provider.shortName
             binding.tvMask.text = Formatting.mask(key.secret)
 
             binding.tvUpdated.text = if (key.lastUpdated > 0L) {
