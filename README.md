@@ -33,10 +33,10 @@
 
 ## 安装
 
-前往 [Releases](https://github.com/ljcddg/Dev-Pocket/releases) 下载最新的 `DevPocket-v1.5.apk` 直接安装（需允许安装未知来源应用）。
+前往 [Releases](https://github.com/ljcddg/Dev-Pocket/releases) 下载最新的 `DevPocket-v1.7.apk` 直接安装（需允许安装未知来源应用）。
 
-- 最低支持 Android 7.0（API 24）
-- 已在 Android 模拟器上验证冷启动、签到页、积分详情页与密钥输入；尚未做真机实测
+- 最低支持 Android 7.0（API 24），目标版本 Android 17（API 37）
+- 已验证：编译通过（debug / release），冷启动、三家余额查询、一键签到的调用链；自动签到涉及系统闹钟与厂商后台策略，**建议在自己的真机上跑一遍**再长期依赖
 - 覆盖升级不需要卸载——同名同签名即可
 
 ---
