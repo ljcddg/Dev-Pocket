@@ -265,6 +265,11 @@
                             tools:text="更新于 刚刚" />
                     </LinearLayout>
 
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="@color/ds_divider" />
+
                     <!-- 签到活动累计获得，与上方「剩余额度」是两个概念 -->
                     <LinearLayout
                         android:layout_width="match_parent"
