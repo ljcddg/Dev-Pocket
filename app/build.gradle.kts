@@ -20,8 +20,8 @@ android {
         applicationId = "com.itcast.ds_balance_viewer"
         minSdk = 24
         targetSdk = 37
-        versionCode = 9
-        versionName = "1.8"
+        versionCode = 10
+        versionName = "1.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
