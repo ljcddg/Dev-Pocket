@@ -29,9 +29,10 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * 交互沿用原首页：点卡片进详情、长按弹菜单、工具栏刷新全部、工具栏 ＋ 添加。
  *
- * 刷新时机有两层：
- *  - 回到前台且距离上次超过 30 秒，静默刷一次（打开 App 就能看到新数字）
- *  - 页面可见期间按用户在设置里选的间隔轮询，间隔为 0 时不轮询
+ * 刷新时机有两层，都遵循设置里的「自动刷新间隔」：
+ *  - 打开 App / 回到前台时，距上次成功刷新不足一个间隔就不刷，直接展示本地快照
+ *    （间隔为 0 即「仅打开时刷新」时，沿用 30 秒节流，切来切去不会刷个不停）
+ *  - 页面可见期间按间隔轮询，从「距上次刷新」算剩余等待，不会因切页重置计时
  * 离开页面立刻停掉 ticker，App 在后台不做任何请求。
  */
 class BalanceFragment : Fragment() {
@@ -40,7 +41,6 @@ class BalanceFragment : Fragment() {
     private val binding get() = _binding!!
 
     private lateinit var adapter: KeyAdapter
-    private var lastRefreshAt = 0L
 
     /** 防止轮询间隔很短时上一轮还没跑完又开一轮 */
     private val refreshing = AtomicBoolean(false)
@@ -92,9 +92,10 @@ class BalanceFragment : Fragment() {
         super.onResume()
         if (_binding == null) return
         reloadList()
+        // 打开 App 时的自动刷新同样尊重间隔：不足一个间隔就只看本地快照，不发请求
         val shouldAutoRefresh = KeyRepository.autoRefresh &&
                 KeyRepository.count() > 0 &&
-                System.currentTimeMillis() - lastRefreshAt > 30_000L
+                KeyRepository.autoRefreshDue(KeyRepository.lastRefreshAt)
         if (shouldAutoRefresh) refreshAll(silent = true)
         scheduleTick()
     }
@@ -111,12 +112,16 @@ class BalanceFragment : Fragment() {
         _binding = null
     }
 
-    /** 按设置里的间隔排下一次刷新；0 表示只在回到前台时刷一次 */
+    /** 按设置里的间隔排下一次刷新；0 表示只在打开 App 时刷一次 */
     private fun scheduleTick() {
         handler.removeCallbacks(ticker)
         val minutes = KeyRepository.refreshIntervalMinutes
         if (minutes <= 0) return
-        handler.postDelayed(ticker, minutes * 60_000L)
+        val intervalMs = minutes * 60_000L
+        // 从「距上次刷新」算剩余等待，而不是每次 onResume 都重置整个间隔
+        val delay = (intervalMs - (System.currentTimeMillis() - KeyRepository.lastRefreshAt))
+            .coerceIn(0L, intervalMs)
+        handler.postDelayed(ticker, delay)
     }
 
     private fun reloadList() {
@@ -161,7 +166,7 @@ class BalanceFragment : Fragment() {
 
                     if (finished.incrementAndGet() == list.size) {
                         refreshing.set(false)
-                        lastRefreshAt = System.currentTimeMillis()
+                        KeyRepository.lastRefreshAt = System.currentTimeMillis()
                         if (_binding != null) reloadList()
                         if (!silent) {
                             val ctx = context ?: return@main
@@ -232,6 +237,8 @@ class BalanceFragment : Fragment() {
                         Toast.makeText(ctx, ErrorText.of(ctx, result), Toast.LENGTH_LONG).show()
                     }
                 }
+                // 手动刷新单个也算一次有效刷新，同样更新节流时间戳
+                KeyRepository.lastRefreshAt = System.currentTimeMillis()
                 if (_binding != null) reloadList()
             }
         }

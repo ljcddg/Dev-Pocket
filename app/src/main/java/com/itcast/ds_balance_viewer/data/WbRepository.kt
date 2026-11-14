@@ -13,6 +13,7 @@ import org.json.JSONObject
 object WbRepository {
 
     private const val STORE_KEY = "wb_accounts_json"
+    private const val LAST_STATUS_REFRESH_KEY = "wb_last_status_refresh_at"
 
     private val cache = mutableListOf<WbAccount>()
     private var loaded = false
@@ -98,6 +99,13 @@ object WbRepository {
     fun remove(id: String) {
         if (cache.removeAll { it.id == id }) persist()
     }
+
+    /** 上次成功刷新签到状态/余额的时间戳。持久化，跨进程存活——否则每次冷启动都会当作“从没刷过” */
+    var lastStatusRefreshAt: Long
+        get() = SecureStore.getString(LAST_STATUS_REFRESH_KEY)?.toLongOrNull() ?: 0L
+        set(value) {
+            SecureStore.putString(LAST_STATUS_REFRESH_KEY, value.toString())
+        }
 
     private fun persist() {
         val array = JSONArray()

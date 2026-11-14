@@ -21,6 +21,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import com.itcast.ds_balance_viewer.R
 import com.itcast.ds_balance_viewer.data.CheckinEngine
+import com.itcast.ds_balance_viewer.data.KeyRepository
 import com.itcast.ds_balance_viewer.data.WbAccount
 import com.itcast.ds_balance_viewer.data.WbRepository
 import com.itcast.ds_balance_viewer.data.WbSession
@@ -48,7 +49,6 @@ class CheckinFragment : Fragment() {
     private val binding get() = _binding!!
 
     private lateinit var adapter: WbAccountAdapter
-    private var lastRefreshAt = 0L
 
     /** 批量签到期间常驻的进度条，结束时统一 dismiss */
     private var batchBar: Snackbar? = null
@@ -82,6 +82,10 @@ class CheckinFragment : Fragment() {
         binding.recyclerView.layoutManager = LinearLayoutManager(requireContext())
         binding.recyclerView.adapter = adapter
 
+        // 批次进度交给引擎监听驱动：不管批次是本页启动的还是定时服务启动的，
+        // 用户在这里都能看到 x/y 进度、按钮被禁用，结束后自动恢复
+        CheckinEngine.addBatchListener(::onBatchProgress)
+
         binding.toolbar.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 R.id.action_checkin_all -> {
@@ -107,17 +111,43 @@ class CheckinFragment : Fragment() {
         reloadList()
         // 切走再切回来时，批量任务可能还在后台跑，按钮状态要跟着恢复
         setBatchRunning(CheckinEngine.isRunning())
-        val shouldAutoRefresh = WbRepository.count() > 0 &&
+        // 打开 App 时的自动刷新遵循设置里的间隔：不足一个间隔就只看本地快照
+        val shouldAutoRefresh = KeyRepository.autoRefresh &&
+                WbRepository.count() > 0 &&
                 !CheckinEngine.isRunning() &&
-                System.currentTimeMillis() - lastRefreshAt > 30_000L
+                KeyRepository.autoRefreshDue(WbRepository.lastStatusRefreshAt)
         if (shouldAutoRefresh) refreshAllStatus(silent = true)
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
+        CheckinEngine.removeBatchListener(::onBatchProgress)
         batchBar?.dismiss()
         batchBar = null
         _binding = null
+    }
+
+    /**
+     * 引擎批次进度回调（已在主线程）。
+     * 手动一键签到、定时自动签到共用：进度条 + 禁用一键签到按钮 + 逐张刷新卡片。
+     */
+    private fun onBatchProgress(done: Int, total: Int, finished: Boolean) {
+        val b = _binding ?: return
+        if (finished) {
+            batchBar?.dismiss()
+            batchBar = null
+            setBatchRunning(false)
+            reloadList()
+            return
+        }
+        setBatchRunning(true)
+        val bar = batchBar ?: Snackbar.make(
+            b.root,
+            getString(R.string.wb_checkin_progress, done, total),
+            Snackbar.LENGTH_INDEFINITE
+        ).apply { show() }.also { batchBar = it }
+        bar.setText(getString(R.string.wb_checkin_progress, done, total))
+        reloadList()
     }
 
     // ---------------- 列表 ----------------
@@ -158,31 +188,21 @@ class CheckinFragment : Fragment() {
             return
         }
         if (CheckinEngine.isRunning()) {
-            Toast.makeText(ctx, R.string.wb_checkin_running, Toast.LENGTH_SHORT).show()
+            // 正在跑的批次（多半是定时自动签到在随机等待）会覆盖剩余未签账号，
+            // 不必重复启动；用户此时点按钮说明等不及了——跳过剩余随机等待尽快收尾
+            CheckinEngine.boost()
+            Toast.makeText(ctx, R.string.wb_checkin_running_boost, Toast.LENGTH_SHORT).show()
             return
         }
 
-        val total = WbRepository.count()
         setBatchRunning(true)
-        val bar = Snackbar.make(
-            binding.root,
-            getString(R.string.wb_checkin_progress, 0, total),
-            Snackbar.LENGTH_INDEFINITE
-        ).apply { show() }
-        batchBar = bar
-
         AppExecutors.checkin.execute {
-            // 进度回调已经切回主线程，直接改 UI 是安全的
-            val report = CheckinEngine.runAll(CheckinEngine.Trigger.MANUAL) { done, sum, _, _ ->
-                batchBar?.setText(getString(R.string.wb_checkin_progress, done, sum))
-                if (_binding != null) reloadList()
-            }
+            // 进度条与卡片刷新由 onBatchProgress 驱动，这里只负责收尾汇总
+            val report = CheckinEngine.runAll(CheckinEngine.Trigger.MANUAL)
             AppExecutors.main {
-                batchBar?.dismiss()
-                batchBar = null
                 setBatchRunning(false)
                 if (_binding != null) reloadList()
-                lastRefreshAt = System.currentTimeMillis()
+                WbRepository.lastStatusRefreshAt = System.currentTimeMillis()
                 context?.let { Toast.makeText(it, summarize(report), Toast.LENGTH_LONG).show() }
             }
         }
@@ -228,6 +248,11 @@ class CheckinFragment : Fragment() {
 
     private fun doCheckin(account: WbAccount) {
         val ctx = context ?: return
+        if (CheckinEngine.isRunning()) {
+            // 批次正在跑（多半是自动签到在账号间随机等待）：先加速收尾，
+            // 本次点击排在批次后立即执行，而不是干等到全部随机等待走完
+            CheckinEngine.boost()
+        }
         Toast.makeText(ctx, R.string.wb_checking, Toast.LENGTH_SHORT).show()
 
         AppExecutors.checkin.execute {
@@ -244,7 +269,7 @@ class CheckinFragment : Fragment() {
                 }
                 Toast.makeText(target, msg, Toast.LENGTH_SHORT).show()
                 if (_binding != null) reloadList()
-                lastRefreshAt = System.currentTimeMillis()
+                WbRepository.lastStatusRefreshAt = System.currentTimeMillis()
             }
         }
     }
@@ -290,7 +315,7 @@ class CheckinFragment : Fragment() {
                         WbRepository.update(acc)
                     }
                     if (finished.incrementAndGet() == list.size) {
-                        lastRefreshAt = System.currentTimeMillis()
+                        WbRepository.lastStatusRefreshAt = System.currentTimeMillis()
                         if (_binding != null) reloadList()
                         if (!silent) {
                             context?.let {
@@ -393,7 +418,7 @@ class CheckinFragment : Fragment() {
                     }
                     WbRepository.update(acc)
                 }
-                lastRefreshAt = System.currentTimeMillis()
+                WbRepository.lastStatusRefreshAt = System.currentTimeMillis()
                 if (_binding != null) reloadList()
             }
         }

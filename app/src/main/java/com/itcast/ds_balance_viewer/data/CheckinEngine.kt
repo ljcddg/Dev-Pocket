@@ -3,6 +3,7 @@ package com.itcast.ds_balance_viewer.data
 import com.itcast.ds_balance_viewer.net.WorkBuddyClient
 import com.itcast.ds_balance_viewer.util.AppExecutors
 import java.util.Calendar
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 
@@ -49,6 +50,41 @@ object CheckinEngine {
     /** 全局互斥：单卡片签到、一键签到、后续的定时签到，同一时刻只允许一个在跑 */
     private val running = AtomicBoolean(false)
 
+    /**
+     * 用户手动介入的加速标记。批次运行中用户点了签到按钮，
+     * 说明他等不及了——跳过剩余账号的随机等待，尽快把批次收尾。
+     * 手动排队的那次 [runSingle] / [runAll] 会在批次结束后立即执行。
+     */
+    @Volatile
+    private var boost = false
+
+    /**
+     * 批次进度监听。无论批次是谁启动的（Fragment 手动、定时服务自动），
+     * UI 都能拿到 (done, total) 实时进度，结束后收到 finished=true。
+     * 回调已切到主线程。
+     */
+    private val batchListeners =
+        CopyOnWriteArrayList<(done: Int, total: Int, finished: Boolean) -> Unit>()
+
+    fun addBatchListener(l: (done: Int, total: Int, finished: Boolean) -> Unit) {
+        batchListeners.add(l)
+    }
+
+    fun removeBatchListener(l: (done: Int, total: Int, finished: Boolean) -> Unit) {
+        batchListeners.remove(l)
+    }
+
+    /** 批次正在跑时用户等不及了：调用后剩余账号不再随机等待 */
+    fun boost() {
+        boost = true
+    }
+
+    private fun notifyBatch(done: Int, total: Int, finished: Boolean) {
+        if (batchListeners.isEmpty()) return
+        val snapshot = batchListeners.toList()
+        AppExecutors.main { snapshot.forEach { it(done, total, finished) } }
+    }
+
     fun isRunning(): Boolean = running.get()
 
     /**
@@ -62,19 +98,24 @@ object CheckinEngine {
         onProgress: (done: Int, total: Int, account: WbAccount, result: Result) -> Unit = { _, _, _, _ -> }
     ): Map<String, Result> {
         if (!running.compareAndSet(false, true)) return emptyMap()
+        boost = false
         val report = LinkedHashMap<String, Result>()
         try {
             val list = WbRepository.all().filter { needsCheckin(it) }
+            // 批次一开始就广播 0/total，让 UI 的进度条立刻出现
+            if (list.isNotEmpty()) notifyBatch(0, list.size, false)
             val deadline = System.currentTimeMillis() + AUTO_BUDGET_MS
             var networkFailures = 0
             for ((index, account) in list.withIndex()) {
-                // AUTO：每个账号开始前独立随机等待（含第一个），这是「随机浮动」的执行位置
-                if (trigger == Trigger.AUTO && System.currentTimeMillis() < deadline) {
+                // AUTO：每个账号开始前独立随机等待（含第一个），这是「随机浮动」的执行位置；
+                // 用户已手动介入（boost）或预算将尽时不再等待
+                if (trigger == Trigger.AUTO && !boost && System.currentTimeMillis() < deadline) {
                     Thread.sleep(gapOf(trigger))
                 }
                 val result = checkOne(account)
                 report[account.id] = result
                 AppExecutors.main { onProgress(index + 1, list.size, account, result) }
+                notifyBatch(index + 1, list.size, false)
 
                 // 断网时连跑一串没有意义，也无谓地刷请求次数
                 if (result is Result.Failed && result.kind == Fail.NETWORK && ++networkFailures >= 2) break
@@ -90,6 +131,7 @@ object CheckinEngine {
             }
         } finally {
             running.set(false)
+            notifyBatch(0, 0, true)
         }
         return report
     }

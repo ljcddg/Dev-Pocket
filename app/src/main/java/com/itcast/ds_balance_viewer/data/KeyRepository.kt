@@ -16,6 +16,7 @@ object KeyRepository {
     private const val STORE_KEY = "keys_json"
     private const val AUTO_REFRESH_KEY = "auto_refresh"
     private const val REFRESH_INTERVAL_KEY = "refresh_interval_minutes"
+    private const val LAST_REFRESH_AT_KEY = "balance_last_refresh_at"
 
     private val cache = mutableListOf<ApiKey>()
     private var loaded = false
@@ -103,6 +104,26 @@ object KeyRepository {
         set(value) {
             SecureStore.putString(REFRESH_INTERVAL_KEY, value.coerceIn(0, 24 * 60).toString())
         }
+
+    /** 上次成功刷新余额的时间戳。持久化，跨进程存活——否则每次冷启动都会当作“从没刷过” */
+    var lastRefreshAt: Long
+        get() = SecureStore.getString(LAST_REFRESH_AT_KEY)?.toLongOrNull() ?: 0L
+        set(value) {
+            SecureStore.putString(LAST_REFRESH_AT_KEY, value.toString())
+        }
+
+    /**
+     * 判断「现在要不要自动刷新」——打开 App / 回到前台时用，与用户设置的间隔一致：
+     *  - 间隔 > 0：距上次刷新不足一个间隔就不刷，直接展示本地快照
+     *  - 间隔 = 0（仅打开时刷新）：沿用 30 秒节流，防止切来切去刷个不停
+     *
+     * @param last 上次成功刷新的时间戳（余额用 [lastRefreshAt]，WorkBuddy 用各自仓库的对应字段）
+     */
+    fun autoRefreshDue(last: Long, now: Long = System.currentTimeMillis()): Boolean {
+        val intervalMs = refreshIntervalMinutes * 60_000L
+        return if (intervalMs > 0) now - last >= intervalMs
+        else now - last > 30_000L
+    }
 
     private fun persist() {
         val array = JSONArray()

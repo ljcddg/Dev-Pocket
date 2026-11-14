@@ -242,6 +242,10 @@ class WbDetailActivity : AppCompatActivity() {
 
     private fun doCheckin() {
         val current = account ?: return
+        if (CheckinEngine.isRunning()) {
+            // 批次正在跑（自动签到的随机等待）：加速收尾，本次点击排在其后立即执行
+            CheckinEngine.boost()
+        }
         Toast.makeText(this, R.string.wb_checking, Toast.LENGTH_SHORT).show()
         setBusy(true)
 

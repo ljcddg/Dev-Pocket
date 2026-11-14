@@ -77,9 +77,9 @@
     <string name="theme_light">浅色模式</string>
     <string name="theme_dark">深色模式</string>
     <string name="settings_auto_refresh">启动时自动刷新</string>
-    <string name="settings_auto_refresh_desc">打开 App 时自动查询所有密钥的余额</string>
+    <string name="settings_auto_refresh_desc">打开 App 时自动查询余额与签到状态</string>
     <string name="settings_refresh_interval">自动刷新间隔</string>
-    <string name="settings_refresh_interval_desc">页面停留期间按此间隔重新查询，离开页面立即停止</string>
+    <string name="settings_refresh_interval_desc">打开 App 与页面停留期间都按此间隔刷新，距上次不足一个间隔时先显示本地快照</string>
     <string name="refresh_interval_off">仅打开时刷新</string>
     <string name="refresh_interval_1">每 1 分钟</string>
     <string name="refresh_interval_5">每 5 分钟</string>
@@ -115,6 +115,7 @@
     <string name="action_checkin_all">一键签到</string>
     <string name="wb_checkin_no_account">还没有可签到的账号，请先登录</string>
     <string name="wb_checkin_running">正在签到中，请稍候</string>
+    <string name="wb_checkin_running_boost">正在签到中，已为你跳过剩余等待，马上完成</string>
     <string name="wb_checkin_progress">正在签到 %1$d/%2$d…</string>
     <string name="wb_checkin_all_done">今天的账号都已经签过了</string>
     <string name="wb_checkin_result">签到完成：%1$d 个账号共领取 %2$d 积分</string>
