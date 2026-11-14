@@ -18,6 +18,10 @@ import kotlin.random.Random
  *  2. claim   → 未签才调用，且与 status 之间留 0.4~1.8s 间隔
  *  3. summary → 刷新剩余额度，卡片上的数字才是最新的
  *
+ * 随机浮动（v1.8 起）：AUTO 触发时**每个账号开始前独立随机等待几秒**，
+ * 档位来自设置「随机浮动」。串行 + 每个账号各自独立的间隔，
+ * 而不是把整批签到统一偏移到一个随机时刻，节奏上更接近真人手动操作。
+ *
  * 所有方法都是阻塞的，必须在 [AppExecutors.checkin] 上执行。
  */
 object CheckinEngine {
@@ -35,6 +39,12 @@ object CheckinEngine {
 
         data class Failed(val kind: Fail, val detail: String = "") : Result()
     }
+
+    /**
+     * AUTO 模式的总时间预算。执行载体是 shortService 前台服务（系统硬上限 3 分钟），
+     * 超过预算就不再做账号间的随机等待，把剩余账号连着跑完，避免被系统强杀。
+     */
+    private const val AUTO_BUDGET_MS = 150_000L
 
     /** 全局互斥：单卡片签到、一键签到、后续的定时签到，同一时刻只允许一个在跑 */
     private val running = AtomicBoolean(false)
@@ -55,15 +65,28 @@ object CheckinEngine {
         val report = LinkedHashMap<String, Result>()
         try {
             val list = WbRepository.all().filter { needsCheckin(it) }
+            val deadline = System.currentTimeMillis() + AUTO_BUDGET_MS
             var networkFailures = 0
             for ((index, account) in list.withIndex()) {
+                // AUTO：每个账号开始前独立随机等待（含第一个），这是「随机浮动」的执行位置
+                if (trigger == Trigger.AUTO && System.currentTimeMillis() < deadline) {
+                    Thread.sleep(gapOf(trigger))
+                }
                 val result = checkOne(account)
                 report[account.id] = result
                 AppExecutors.main { onProgress(index + 1, list.size, account, result) }
 
                 // 断网时连跑一串没有意义，也无谓地刷请求次数
                 if (result is Result.Failed && result.kind == Fail.NETWORK && ++networkFailures >= 2) break
-                if (index < list.lastIndex) Thread.sleep(gapOf(trigger, result))
+                if (index < list.lastIndex) {
+                    // 失败后额外拉长 3~5s 再碰下一个账号；手动模式账号间保持 1~3s
+                    val backoff = if (result is Result.Failed) Random.nextLong(3_000L, 5_001L) else 0L
+                    if (trigger == Trigger.MANUAL) {
+                        Thread.sleep(gapOf(trigger) + backoff)
+                    } else if (backoff > 0L) {
+                        Thread.sleep(backoff)
+                    }
+                }
             }
         } finally {
             running.set(false)
@@ -155,16 +178,18 @@ object CheckinEngine {
     }
 
     /**
-     * 账号之间的间隔。失败后拉长到 3~5s，别立刻回头再打同一个域；
-     * 自动模式更保守，手动模式给 1~3s 让用户等得不难受。
+     * 一个账号开始前的随机间隔。
+     *  - MANUAL：1~3s，用户盯着进度条，别让他久等
+     *  - AUTO：按设置的「随机浮动」档位取值，每个账号独立随机：
+     *      不浮动 = 1~3s，标准 = 5~15s，拉长 = 10~30s
      */
-    private fun gapOf(trigger: Trigger, result: Result): Long {
-        val range = when {
-            result is Result.Failed -> 3_000L..5_000L
-            trigger == Trigger.AUTO -> 3_000L..8_000L
-            else -> 1_000L..3_000L
+    private fun gapOf(trigger: Trigger): Long = when (trigger) {
+        Trigger.MANUAL -> Random.nextLong(1_000L, 3_001L)
+        Trigger.AUTO -> when (AutoCheckinPref.jitterMinutes) {
+            30 -> Random.nextLong(5_000L, 15_001L)
+            60 -> Random.nextLong(10_000L, 30_001L)
+            else -> Random.nextLong(1_000L, 3_001L)
         }
-        return Random.nextLong(range.first, range.last + 1)
     }
 
     private fun sameDay(a: Long, b: Long): Boolean {

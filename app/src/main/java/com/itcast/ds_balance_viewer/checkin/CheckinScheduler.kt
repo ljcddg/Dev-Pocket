@@ -9,23 +9,20 @@ import android.os.Build
 import android.provider.Settings
 import com.itcast.ds_balance_viewer.data.AutoCheckinPref
 import java.util.Calendar
-import kotlin.math.sqrt
 import kotlin.random.Random
 
 /**
- * 自动签到的调度层：算出「今天到底几点执行」，然后交给系统闹钟。
+ * 自动签到的调度层：算出「今天到底几点开始」，然后交给系统闹钟。
  *
- * 关键设计：**随机浮动在调度时算好，不在执行时 sleep**。
- * Android 后台进程活不过一分钟，`Thread.sleep(30 分钟)` 一定会被 Doze 或
- * JobScheduler 掐掉。所以这里把 `T + δ` 一次算完，直接把精确闹钟定在那个时刻，
- * 效果与「到点后随机等一会儿」完全等价，但没有保活成本。
- *
- * δ 的算法：
- *  - 三角分布而不是均匀分布：人的签到时刻是「有峰值的」，平坦随机本身就是机器特征
- *  - 区间 [-12, +jitter]，众数 0，整体偏后
- *  - 周末再往后推 25~45 分钟
- *  - 秒级抖动 0~90s，避免每天落在同一秒
- *  - 同一天的结果由 `种子 + 日期` 决定，可复现、对服务端不可预测
+ * 设计（v1.8 起，随机浮动逻辑重构）：
+ *  - **闹钟只负责「几点开始」**：定在用户设定时刻 + 0~90 秒的每日抖动。
+ *    抖动由 `种子 + 日期` 决定：同一天内可复现（重排闹钟不会漂移），对服务端不可预测。
+ *  - **随机浮动在执行阶段完成**：闹钟响后 [CheckinService] 串行签到，
+ *    每个账号开始前独立随机等待几秒（档位见设置「随机浮动」）。
+ *    这比旧版「调度时一次性把整批偏移几分钟」更接近真人：真人是一个一个来、
+ *    每个账号之间的间隔都不一样，而不是所有账号挤在同一时刻附近。
+ *  - shortService 有 3 分钟上限，执行层自带预算控制（见 CheckinEngine）。
+ *  - 主闹钟失败（Doze、断网、进程被杀）时，90 分钟后还有一个补偿闹钟。
  */
 object CheckinScheduler {
 
@@ -37,10 +34,8 @@ object CheckinScheduler {
     /** 主闹钟没成功（Doze、断网、进程被杀）时的补偿闹钟，晚 90 分钟 */
     private const val BACKUP_DELAY_MS = 90 * 60 * 1000L
 
-    /** 最早不早于设定时间前 12 分钟 */
-    private const val LEAD_MINUTES = -12
-    private const val LATE_LIMIT_HOUR = 23
-    private const val LATE_LIMIT_MINUTE = 45
+    /** 每日秒级抖动上限：避免每天落在同一秒，又不至于把签到拖离设定时刻太远 */
+    private const val JITTER_SECONDS = 90
 
     // ---------------- 对外入口 ----------------
 
@@ -66,16 +61,14 @@ object CheckinScheduler {
     }
 
     /**
-     * 下一次触发时刻（毫秒）。今天的时间窗已经过去就顺延到明天；
-     * 开了「仅工作日」时跳过周六日。调用前需确保 [AutoCheckinPref.init] 已执行。
+     * 下一次触发时刻（毫秒）。今天的时间窗已经过去就顺延到明天。
+     * 调用前需确保 [AutoCheckinPref.init] 已执行。
      */
     fun nextTriggerAt(now: Long): Long {
         val cal = Calendar.getInstance().apply { timeInMillis = now }
         for (i in 0..7) {
             val candidate = triggerFor(cal.timeInMillis)
-            val usable = candidate > now + 60_000L &&
-                    !(AutoCheckinPref.weekdayOnly && isWeekend(candidate))
-            if (usable) return candidate
+            if (candidate > now + 60_000L) return candidate
             // 换到第二天再算，用正午做基准避免月末/时区边界问题
             cal.add(Calendar.DAY_OF_MONTH, 1)
             cal.set(Calendar.HOUR_OF_DAY, 12)
@@ -122,7 +115,7 @@ object CheckinScheduler {
 
     // ---------------- 时间计算 ----------------
 
-    /** 某一天的实际触发时刻：设定时间 + 浮动偏移 + 秒级抖动 */
+    /** 某一天的开始时刻：设定时间 + 每日 0~90 秒抖动（种子+日期，当天稳定） */
     private fun triggerFor(dayMillis: Long): Long {
         val cal = Calendar.getInstance().apply {
             timeInMillis = dayMillis
@@ -135,47 +128,9 @@ object CheckinScheduler {
                 (cal.get(Calendar.MONTH) + 1) * 100 +
                 cal.get(Calendar.DAY_OF_MONTH)
 
-        // 同一天同一个种子永远算出同一个偏移：可复现，但外部无法反推
         val rnd = Random(AutoCheckinPref.seed.hashCode().toLong() * 1_000_003L + dateKey)
-        val jitterMax = AutoCheckinPref.jitterMinutes.coerceAtLeast(0)
-
-        var offset = triangular(LEAD_MINUTES, jitterMax, 0, rnd.nextDouble()).toInt()
-        if (isWeekend(cal.timeInMillis)) offset += 25 + rnd.nextInt(21)
-        val seconds = rnd.nextInt(91)
-
-        val earliest = Calendar.getInstance().apply {
-            timeInMillis = cal.timeInMillis
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 10)
-            set(Calendar.SECOND, 0)
-        }
-        val latest = Calendar.getInstance().apply {
-            timeInMillis = cal.timeInMillis
-            set(Calendar.HOUR_OF_DAY, LATE_LIMIT_HOUR)
-            set(Calendar.MINUTE, LATE_LIMIT_MINUTE)
-            set(Calendar.SECOND, 0)
-        }
-
-        cal.add(Calendar.MINUTE, offset)
-        cal.add(Calendar.SECOND, seconds)
-        return cal.timeInMillis.coerceIn(earliest.timeInMillis, latest.timeInMillis)
-    }
-
-    /** 三角分布：有峰值，比 uniform 更像人的作息 */
-    private fun triangular(min: Int, max: Int, mode: Int, r: Double): Double {
-        if (max <= min) return min.toDouble()
-        val m = mode.coerceIn(min, max)
-        val c = (m - min).toDouble() / (max - min)
-        return if (r < c) {
-            min + sqrt(r * (max - min) * (m - min))
-        } else {
-            max - sqrt((1 - r) * (max - min) * (max - m))
-        }
-    }
-
-    private fun isWeekend(millis: Long): Boolean {
-        val dow = Calendar.getInstance().apply { timeInMillis = millis }.get(Calendar.DAY_OF_WEEK)
-        return dow == Calendar.SATURDAY || dow == Calendar.SUNDAY
+        cal.add(Calendar.SECOND, rnd.nextInt(JITTER_SECONDS + 1))
+        return cal.timeInMillis
     }
 
     // ---------------- AlarmManager ----------------

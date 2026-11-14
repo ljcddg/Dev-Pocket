@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.itcast.ds_balance_viewer.R
+import com.itcast.ds_balance_viewer.data.CheckinEngine
 import com.itcast.ds_balance_viewer.data.WbAccount
 import com.itcast.ds_balance_viewer.data.WbRepository
 import com.itcast.ds_balance_viewer.data.WbSession
@@ -97,9 +98,9 @@ class WbDetailActivity : AppCompatActivity() {
             "${Formatting.credit(a.totalCredits)} ${getString(R.string.wb_credit_unit)}"
         }
 
-        // hero 副标题：今日到账 + 连签天数
-        val streakPart = if (a.streakDays > 0) {
-            getString(R.string.wb_hero_streak, a.streakDays)
+        // hero 副标题：今日到账 + 连签天数（本地按签到日期算出的真连签）
+        val streakPart = if (a.consecutiveDays > 0) {
+            getString(R.string.wb_hero_streak, a.consecutiveDays)
         } else {
             ""
         }
@@ -122,7 +123,7 @@ class WbDetailActivity : AppCompatActivity() {
         }
 
         // 明细行
-        binding.tvStreak.text = getString(R.string.wb_detail_days, a.streakDays)
+        binding.tvStreak.text = getString(R.string.wb_detail_days, a.consecutiveDays)
         binding.tvNextBonus.text = when {
             a.isStreakDay && a.streakBonusCredit > 0 ->
                 getString(R.string.wb_detail_bonus_today, Formatting.credit(a.streakBonusCredit))
@@ -244,39 +245,34 @@ class WbDetailActivity : AppCompatActivity() {
         Toast.makeText(this, R.string.wb_checking, Toast.LENGTH_SHORT).show()
         setBusy(true)
 
-        AppExecutors.io.execute {
-            val ready = WbSession.ensureToken(current)
-            if (ready == null) {
-                AppExecutors.main {
-                    setBusy(false)
-                    Toast.makeText(this, R.string.wb_expired, Toast.LENGTH_LONG).show()
-                }
-                return@execute
-            }
-
-            val claim = WorkBuddyClient.claim(ready.accessToken, ready.uid, ready.domain)
-            val status = WorkBuddyClient.checkinStatus(ready.accessToken, ready.uid, ready.domain)
-            // 签到会加额度，余额要一起刷新才看得到变化
-            val credit = WorkBuddyClient.creditSummary(ready.accessToken, ready.uid, ready.domain)
-
+        // 走 CheckinEngine：与列表页 / 自动签到共用「先查后领」与全局互斥，
+        // 避免详情页这边和一键签到、定时任务同时打接口
+        AppExecutors.checkin.execute {
+            val result = CheckinEngine.runSingle(current)
             AppExecutors.main {
                 setBusy(false)
-                when (claim) {
-                    is WorkBuddyClient.Res.Ok -> {
-                        val r = claim.value
-                        val msg = when {
-                            r.alreadyCheckedIn -> getString(R.string.wb_claim_already)
-                            r.credit > 0 -> getString(R.string.wb_claim_success, r.credit)
-                            else -> getString(R.string.wb_checked_today)
-                        }
-                        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-                    }
-                    is WorkBuddyClient.Res.Err ->
-                        Toast.makeText(this, describe(claim.error), Toast.LENGTH_LONG).show()
+                val msg = when (result) {
+                    null -> getString(R.string.wb_checkin_running)
+                    is CheckinEngine.Result.Claimed ->
+                        if (result.credit > 0) getString(R.string.wb_claim_success, result.credit)
+                        else getString(R.string.wb_checked_today)
+                    CheckinEngine.Result.AlreadyDone -> getString(R.string.wb_claim_already)
+                    is CheckinEngine.Result.Failed -> describeFail(result)
                 }
-                applyAll(ready, status, credit)
+                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                // 引擎已把最新快照（含余额、连签、日历）写回仓库，重读再渲染
+                account = WbRepository.find(current.id)
+                account?.let { render(it) }
             }
         }
+    }
+
+    private fun describeFail(fail: CheckinEngine.Result.Failed): String = when (fail.kind) {
+        CheckinEngine.Fail.EXPIRED -> getString(R.string.wb_expired)
+        CheckinEngine.Fail.TIMEOUT -> getString(R.string.err_timeout)
+        CheckinEngine.Fail.NETWORK -> getString(R.string.wb_network)
+        CheckinEngine.Fail.PARSE -> getString(R.string.err_parse)
+        CheckinEngine.Fail.BUSINESS -> getString(R.string.wb_api_error, fail.detail)
     }
 
     /** 拉最新签到状态 + 账户余额；userTriggered 决定是否有"查询中"的即时反馈 */

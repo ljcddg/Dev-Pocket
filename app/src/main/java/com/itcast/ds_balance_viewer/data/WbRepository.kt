@@ -48,6 +48,7 @@ object WbRepository {
                         active = if (obj.has("active")) obj.getBoolean("active") else null,
                         checkedIn = if (obj.has("checkedIn")) obj.getBoolean("checkedIn") else null,
                         streakDays = obj.optInt("streakDays", 0),
+                        consecutiveDays = obj.optInt("consecutiveDays", 0),
                         dailyCredit = obj.optInt("dailyCredit", 0),
                         totalCredits = obj.optInt("totalCredits", -1),
                         todayCredit = obj.optInt("todayCredit", 0),
@@ -113,6 +114,7 @@ object WbRepository {
                 a.active?.let { put("active", it) }
                 a.checkedIn?.let { put("checkedIn", it) }
                 put("streakDays", a.streakDays)
+                put("consecutiveDays", a.consecutiveDays)
                 put("dailyCredit", a.dailyCredit)
                 put("totalCredits", a.totalCredits)
                 put("todayCredit", a.todayCredit)

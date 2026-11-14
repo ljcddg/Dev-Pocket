@@ -29,6 +29,7 @@ import com.itcast.ds_balance_viewer.data.WbRepository
 import com.itcast.ds_balance_viewer.databinding.FragmentSettingsBinding
 import com.itcast.ds_balance_viewer.util.Formatting
 import com.itcast.ds_balance_viewer.util.SystemBars
+import com.itcast.ds_balance_viewer.update.UpdateManager
 import java.util.Locale
 
 /**
@@ -71,6 +72,10 @@ class SettingsFragment : Fragment() {
         setupBalance()
 
         binding.tvVersion.text = getString(R.string.settings_version, BuildConfig.VERSION_NAME)
+        binding.tvCheckUpdate.text = "v${BuildConfig.VERSION_NAME}"
+        binding.rowCheckUpdate.setOnClickListener {
+            UpdateManager.checkManually(requireContext())
+        }
     }
 
     override fun onResume() {
@@ -184,7 +189,6 @@ class SettingsFragment : Fragment() {
     private fun setupAutoCheckin() {
         // 先把开关状态摆好，再挂监听，避免初始化触发的回调把值又写一遍
         binding.switchAutoCheckin.isChecked = AutoCheckinPref.enabled
-        binding.switchWeekdayOnly.isChecked = AutoCheckinPref.weekdayOnly
         binding.switchBootStart.isChecked = AutoCheckinPref.autoStartOnBoot
         binding.switchNotifyResult.isChecked = AutoCheckinPref.notifyResult
 
@@ -201,11 +205,6 @@ class SettingsFragment : Fragment() {
                 AutoCheckinPref.nextTriggerAt = 0L
             }
             renderSchedule()
-        }
-
-        binding.switchWeekdayOnly.setOnCheckedChangeListener { _, checked ->
-            AutoCheckinPref.weekdayOnly = checked
-            rescheduleIfEnabled()
         }
 
         binding.switchBootStart.setOnCheckedChangeListener { _, checked ->

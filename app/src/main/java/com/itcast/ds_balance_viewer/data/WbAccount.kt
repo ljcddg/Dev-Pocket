@@ -21,7 +21,13 @@ data class WbAccount(
     val active: Boolean? = null,
     /** 今日是否已签到；null 表示尚未查询 */
     val checkedIn: Boolean? = null,
+    /**
+     * 服务端的 streak_days——实测是「签到总天数」，不是连签。
+     * 保留原名仅作服务端原始快照，界面上的连续天数请用 [consecutiveDays]。
+     */
     val streakDays: Int = 0,
+    /** 连续签到天数：本地从 checkinDates 逐日往回数出来的真连签 */
+    val consecutiveDays: Int = 0,
     val dailyCredit: Int = 0,
     /** 累计积分（-1 表示还没查到） */
     val totalCredits: Int = -1,

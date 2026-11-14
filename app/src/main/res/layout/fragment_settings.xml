@@ -250,14 +250,6 @@
                         android:textSize="12sp" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/switchWeekdayOnly"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:minHeight="44dp"
-                        android:text="@string/auto_checkin_weekday"
-                        android:textSize="15sp" />
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/switchBootStart"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -372,6 +364,32 @@
                         android:textColor="?android:attr/textColorPrimary"
                         android:textSize="14sp"
                         tools:text="版本 1.6" />
+
+                    <LinearLayout
+                        android:id="@+id/rowCheckUpdate"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="?attr/selectableItemBackground"
+                        android:gravity="center_vertical"
+                        android:minHeight="48dp"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/update_check"
+                            android:textColor="?android:attr/textColorPrimary"
+                            android:textSize="15sp" />
+
+                        <TextView
+                            android:id="@+id/tvCheckUpdate"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textColor="@color/ds_primary"
+                            android:textSize="14sp"
+                            tools:text="v1.8" />
+                    </LinearLayout>
 
                     <TextView
                         android:layout_width="match_parent"

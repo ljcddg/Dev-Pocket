@@ -64,16 +64,17 @@ class WbAccountAdapter(
                 else -> ""
             }
 
-            // 连签进度：能算出距下次奖励的天数时给具体提示
+            // 连签进度：天数用本地按日期算出的真连签；奖励进度仍以服务端字段为准
             binding.tvStreak.text = when {
-                account.streakDays > 0 && account.nextStreakDay > account.streakDays &&
+                account.consecutiveDays > 0 && account.nextStreakDay > account.streakDays &&
                         account.streakBonusCredit > 0 -> context.getString(
                     R.string.wb_streak_progress,
-                    account.streakDays,
+                    account.consecutiveDays,
                     account.nextStreakDay - account.streakDays,
                     Formatting.credit(account.streakBonusCredit)
                 )
-                account.streakDays > 0 -> context.getString(R.string.wb_streak_plain, account.streakDays)
+                account.consecutiveDays > 0 ->
+                    context.getString(R.string.wb_streak_plain, account.consecutiveDays)
                 else -> context.getString(R.string.wb_streak_zero)
             }
 

@@ -5,6 +5,7 @@ import com.itcast.ds_balance_viewer.checkin.CheckinScheduler
 import com.itcast.ds_balance_viewer.data.AutoCheckinPref
 import com.itcast.ds_balance_viewer.data.KeyRepository
 import com.itcast.ds_balance_viewer.data.ThemePref
+import com.itcast.ds_balance_viewer.data.UpdatePref
 import com.itcast.ds_balance_viewer.data.WbRepository
 
 /**
@@ -26,5 +27,6 @@ class DsApp : Application() {
 
         AutoCheckinPref.init(this)
         CheckinScheduler.reschedule(this)
+        UpdatePref.init(this)
     }
 }

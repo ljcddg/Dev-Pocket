@@ -17,10 +17,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 为什么用短期前台服务而不是 WorkManager：
  *  - 项目刻意保持零第三方架构组件，WorkManager 会带进 lifecycle / sqlite 一整套
  *  - 前台服务能让系统在 Doze 里认账，且 `shortService` 类型天然限制在 3 分钟内，
- *    正好匹配「几次 HTTP 请求」这种量级
+ *    正好匹配「几次 HTTP 请求 + 账号间随机等待」的量级
  *
  * 执行时必须走 [AppExecutors.checkin]（单线程），和手动签到共用同一把互斥锁：
  * 用户正好在自动签到跑的时候点一键签到，两边不会同时打接口。
+ *
+ * shortService 的 3 分钟是硬上限：超时回调里优雅收尾（已完成的账号结果都已写回），
+ * 没签完的账号由 90 分钟后的补偿闹钟兜底。
  */
 class CheckinService : Service() {
 
@@ -70,6 +73,19 @@ class CheckinService : Service() {
     override fun onDestroy() {
         running.set(false)
         super.onDestroy()
+    }
+
+    /**
+     * shortService 到达系统时限时回调（Android 15+）。
+     * [CheckinEngine] 内部有 2.5 分钟的软预算，正常不会走到这里；
+     * 万一走到（机型限得更严、请求特别慢），记录原因并优雅退出，
+     * 剩余账号交给补偿闹钟再试一次。
+     */
+    override fun onTimeout(startId: Int) {
+        AutoCheckinPref.lastResult = getString(R.string.auto_checkin_timeout)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+        running.set(false)
     }
 
     /** 与手动批量签到共用同一套文案，避免两条路径说话不一致 */

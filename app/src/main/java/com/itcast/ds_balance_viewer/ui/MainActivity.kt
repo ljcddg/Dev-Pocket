@@ -7,6 +7,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import com.itcast.ds_balance_viewer.R
 import com.itcast.ds_balance_viewer.databinding.ActivityMainBinding
+import com.itcast.ds_balance_viewer.update.UpdateManager
 
 /**
  * 主界面：底部导航 + 三个 Tab。
@@ -55,6 +56,8 @@ class MainActivity : AppCompatActivity() {
 
         if (savedInstanceState == null) {
             binding.bottomNav.selectedItemId = R.id.tab_balance
+            // 冷启动静默检查一次 GitHub Releases（一天最多一次），有新版本才弹窗
+            UpdateManager.maybeAutoCheck(this)
         }
     }
 

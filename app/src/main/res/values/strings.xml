@@ -152,7 +152,6 @@
     <string name="wb_checked_today">今日已签</string>
     <string name="wb_not_checked">今日未签</string>
     <string name="wb_unknown_status">状态未知</string>
-    <string name="wb_streak_info">连签 %1$d 天 · 今日 %2$d 积分</string>
     <string name="wb_streak_plain">连签 %1$d 天</string>
 
     <!-- 积分展示 -->
@@ -220,11 +219,10 @@
     <string name="auto_checkin_switch">开启自动签到</string>
     <string name="auto_checkin_time_label">签到时间</string>
     <string name="auto_checkin_jitter_label">随机浮动</string>
-    <string name="auto_checkin_jitter_desc">在设定时间前后随机偏移，避免每天固定同一秒</string>
-    <string name="auto_checkin_jitter_off">不浮动</string>
-    <string name="auto_checkin_jitter_30">0 – 30 分钟</string>
-    <string name="auto_checkin_jitter_60">0 – 60 分钟</string>
-    <string name="auto_checkin_weekday">仅工作日</string>
+    <string name="auto_checkin_jitter_desc">自动签到串行执行时，每个账号开始前独立随机等待，更接近手动节奏</string>
+    <string name="auto_checkin_jitter_off">不浮动（1–3 秒）</string>
+    <string name="auto_checkin_jitter_30">标准（5–15 秒）</string>
+    <string name="auto_checkin_jitter_60">拉长（10–30 秒）</string>
     <string name="auto_checkin_boot">开机自动恢复</string>
     <string name="auto_checkin_boot_desc">重启手机后自动把签到闹钟挂回去。关掉后需要手动打开一次本应用</string>
     <string name="auto_checkin_boot_hint">若系统「自启动管理」未放行本应用，上面的开关可能不生效</string>
@@ -248,4 +246,18 @@
     <string name="auto_checkin_boot_disabled">开机自启动已关闭，请打开应用恢复</string>
     <string name="auto_checkin_nothing">没有需要签到的账号</string>
     <string name="auto_checkin_blocked">系统限制了后台启动，请打开应用手动签到</string>
+    <string name="auto_checkin_timeout">执行超过系统 3 分钟上限被中断，剩余账号由补偿闹钟重试；也可调小「随机浮动」档位</string>
+
+    <!-- 检查更新 -->
+    <string name="update_check">检查更新</string>
+    <string name="update_checking">正在检查更新…</string>
+    <string name="update_latest">已是最新版本</string>
+    <string name="update_found_title">发现新版本 %1$s</string>
+    <string name="update_download">立即下载</string>
+    <string name="update_skip">跳过</string>
+    <string name="update_notes_none">更新说明见 GitHub Releases 页面</string>
+    <string name="update_size">安装包约 %1$s</string>
+    <string name="update_download_started">已开始下载，完成后将自动弹出安装界面</string>
+    <string name="update_check_failed">检查更新失败，可稍后重试或到 GitHub Releases 手动下载</string>
+    <string name="update_notif_title">口袋助手 %1$s</string>
 </resources>

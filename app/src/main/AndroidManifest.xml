@@ -19,6 +19,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- 自动签到：引导用户把应用加入电池优化白名单 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 检查更新：下载完成后直接拉起安装界面（Android 8+ 需声明，用户首次需允许「安装未知应用」） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".DsApp"
@@ -87,6 +89,26 @@
             android:name=".checkin.CheckinService"
             android:exported="false"
             android:foregroundServiceType="shortService" />
+
+        <!-- 检查更新：apk 下载完成后拉起安装界面 -->
+        <receiver
+            android:name=".update.DownloadCompleteReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 检查更新：把应用私有目录里的 apk 授权给系统安装器 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

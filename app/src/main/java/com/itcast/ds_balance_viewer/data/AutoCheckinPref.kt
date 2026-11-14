@@ -24,7 +24,6 @@ object AutoCheckinPref {
     private const val KEY_HOUR = "hour"
     private const val KEY_MINUTE = "minute"
     private const val KEY_JITTER = "jitter"
-    private const val KEY_WEEKDAY_ONLY = "weekday_only"
     private const val KEY_AUTO_START = "auto_start"
     private const val KEY_NOTIFY = "notify"
     private const val KEY_SEED = "seed"
@@ -59,15 +58,14 @@ object AutoCheckinPref {
         get() = prefs.getInt(KEY_MINUTE, 0)
         set(value) = prefs.edit().putInt(KEY_MINUTE, value.coerceIn(0, 59)).apply()
 
-    /** 随机浮动的最大延后分钟数：0 / 30 / 60 */
+    /**
+     * 随机浮动档位（沿用旧 key，语义自 v1.8 起变化）：
+     * 0 = 不浮动（账号间 1~3s）/ 30 = 标准（5~15s）/ 60 = 拉长（10~30s）。
+     * 浮动发生在执行阶段——每个账号开始前独立随机等待，见 [CheckinEngine]。
+     */
     var jitterMinutes: Int
         get() = prefs.getInt(KEY_JITTER, 30)
         set(value) = prefs.edit().putInt(KEY_JITTER, value.coerceIn(0, 120)).apply()
-
-    /** 只在周一到周五执行，周末跳过 */
-    var weekdayOnly: Boolean
-        get() = prefs.getBoolean(KEY_WEEKDAY_ONLY, false)
-        set(value) = prefs.edit().putBoolean(KEY_WEEKDAY_ONLY, value).apply()
 
     /**
      * 开机后是否自动恢复签到闹钟。

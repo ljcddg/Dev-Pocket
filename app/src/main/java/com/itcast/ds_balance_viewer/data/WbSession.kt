@@ -35,11 +35,14 @@ object WbSession {
     }
 
     /** 把接口状态合并进账号快照（只覆盖有值的字段） */
-    fun merge(account: WbAccount, status: WorkBuddyClient.CheckinStatus): WbAccount =
-        account.copy(
+    fun merge(account: WbAccount, status: WorkBuddyClient.CheckinStatus): WbAccount {
+        // streak_days 服务端实际返回的是总天数，连签以日期列表本地计算为准
+        val dates = status.checkinDates.ifEmpty { account.checkinDates }
+        return account.copy(
             active = status.active,
             checkedIn = status.checkedIn,
             streakDays = status.streakDays,
+            consecutiveDays = Streak.consecutiveDays(dates),
             dailyCredit = status.dailyCredit,
             todayCredit = status.todayCredit,
             // 服务端未返回 total_credits 时保留上一次已知值，避免把积分显示成占位符
@@ -48,12 +51,13 @@ object WbSession {
             nextStreakDay = status.nextStreakDay,
             streakBonusDays = status.streakBonusDays,
             streakBonusCredit = status.streakBonusCredit,
-            checkinDates = status.checkinDates.ifEmpty { account.checkinDates },
+            checkinDates = dates,
             activityName = status.activityName ?: account.activityName,
             activityEndTime = status.endTime ?: account.activityEndTime,
             lastCheckinAt = if (status.checkedIn) System.currentTimeMillis()
             else account.lastCheckinAt
         )
+    }
 
     /**
      * 把账户余额合并进账号快照。
