@@ -46,7 +46,10 @@ data class WbAccount(
     /** 活动名称与结束时间 */
     val activityName: String? = null,
     val activityEndTime: String? = null,
+    /** 上次真正签到成功的时间；只在实际领取成功后写入，状态查询不会碰它 */
     val lastCheckinAt: Long = 0L,
+    /** 上次成功查询该账号数据（签到状态 / 额度）的时间；0 表示尚未查询 */
+    val lastQueryAt: Long = 0L,
     val lastResult: String? = null,
     /** 账户剩余可用额度（本周期）—— -1 表示还没查到 */
     val creditLeft: Long = -1,

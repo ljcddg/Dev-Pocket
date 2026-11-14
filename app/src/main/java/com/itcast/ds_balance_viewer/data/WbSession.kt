@@ -54,8 +54,9 @@ object WbSession {
             checkinDates = dates,
             activityName = status.activityName ?: account.activityName,
             activityEndTime = status.endTime ?: account.activityEndTime,
-            lastCheckinAt = if (status.checkedIn) System.currentTimeMillis()
-            else account.lastCheckinAt
+            // 只记录「数据是什么时候查的」。签到时间必须来自真实领取（CheckinEngine），
+            // 否则每次刷新都会把「上次签到」刷成刚刚，看起来像刚签过
+            lastQueryAt = System.currentTimeMillis()
         )
     }
 
@@ -71,6 +72,7 @@ object WbSession {
             creditTotal = summary.total,
             creditUsed = summary.used,
             isPaidUser = summary.isPaidUser,
-            planName = summary.planName ?: account.planName
+            planName = summary.planName ?: account.planName,
+            lastQueryAt = System.currentTimeMillis()
         )
 }

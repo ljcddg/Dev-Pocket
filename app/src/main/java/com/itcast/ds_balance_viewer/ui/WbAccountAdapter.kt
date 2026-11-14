@@ -78,8 +78,10 @@ class WbAccountAdapter(
                 else -> context.getString(R.string.wb_streak_zero)
             }
 
-            // 次要信息：签到累计获得 + 上次签到时间（两者都有用，用 · 连接）
-            val detailParts = ArrayList<String>(2)
+            // 次要信息：签到累计获得 + 数据更新时间。
+            // 时间显示的是「上次查询这个账号」的时刻（lastQueryAt），
+            // 不是签到时刻——服务端不返回具体签到时间，拿刷新时间冒充会误导
+            val detailParts = ArrayList<String>(3)
             if (account.totalCredits >= 0) {
                 detailParts.add(
                     context.getString(
@@ -88,18 +90,15 @@ class WbAccountAdapter(
                     )
                 )
             }
-            when {
-                account.lastCheckinAt > 0L -> detailParts.add(
-                    context.getString(
-                        R.string.wb_credit_last_checkin,
-                        Formatting.relativeTime(account.lastCheckinAt)
-                    )
-                )
-                account.lastResult != null -> detailParts.add(account.lastResult)
-            }
-            binding.tvLastResult.text = detailParts.joinToString(" · ").ifBlank {
-                context.getString(R.string.wb_never_checked)
-            }
+            account.lastResult?.let { detailParts.add(it) }
+            detailParts.add(
+                if (account.lastQueryAt > 0L) {
+                    context.getString(R.string.updated_at, Formatting.relativeTime(account.lastQueryAt))
+                } else {
+                    context.getString(R.string.never_updated)
+                }
+            )
+            binding.tvLastResult.text = detailParts.joinToString(" · ")
 
             // 状态胶囊
             val statusColor = when {

@@ -142,10 +142,13 @@ class WbDetailActivity : AppCompatActivity() {
             a.dailyCredit > 0 -> getString(R.string.wb_detail_today_pending, a.dailyCredit)
             else -> "—"
         }
-        binding.tvLastCheckin.text = if (a.lastCheckinAt > 0L) {
-            Formatting.relativeTime(a.lastCheckinAt)
+        // 上次签到只显示日期：接口不返回签到时刻，日期取自签到日历（真实记录）
+        binding.tvLastCheckin.text = a.checkinDates.maxOrNull()?.let { shortDate(it) }
+            ?: getString(R.string.wb_never_checked)
+        binding.tvDataUpdated.text = if (a.lastQueryAt > 0L) {
+            Formatting.relativeTime(a.lastQueryAt)
         } else {
-            getString(R.string.wb_never_checked)
+            getString(R.string.never_updated)
         }
 
         // 活动信息：有名字或结束时间才显示这一行

@@ -176,10 +176,15 @@ object CheckinEngine {
 
         return when (val claim = WorkBuddyClient.claim(ready.accessToken, ready.uid, ready.domain)) {
             is WorkBuddyClient.Res.Ok -> {
-                val current = if (status is WorkBuddyClient.Res.Ok) {
+                var current = if (status is WorkBuddyClient.Res.Ok) {
                     WbSession.merge(ready, status.value)
                 } else {
                     ready
+                }
+                // 只有本次真的领取成功才记录签到时间；服务端说「已签」时
+                // 真实签到时刻未知，不能拿当前时间冒充
+                if (!claim.value.alreadyCheckedIn) {
+                    current = current.copy(lastCheckinAt = System.currentTimeMillis())
                 }
                 writeBack(refreshBalance(current))
                 if (claim.value.alreadyCheckedIn) Result.AlreadyDone

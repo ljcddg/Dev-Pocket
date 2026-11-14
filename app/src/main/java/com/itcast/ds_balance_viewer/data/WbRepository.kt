@@ -63,6 +63,7 @@ object WbRepository {
                         activityName = obj.optString("activityName").ifBlank { null },
                         activityEndTime = obj.optString("activityEndTime").ifBlank { null },
                         lastCheckinAt = obj.optLong("lastCheckinAt", 0L),
+                        lastQueryAt = obj.optLong("lastQueryAt", 0L),
                         lastResult = obj.optString("lastResult").ifBlank { null },
                         creditLeft = obj.optLong("creditLeft", -1L),
                         creditTotal = obj.optLong("creditTotal", -1L),
@@ -134,6 +135,7 @@ object WbRepository {
                 put("activityName", a.activityName ?: "")
                 put("activityEndTime", a.activityEndTime ?: "")
                 put("lastCheckinAt", a.lastCheckinAt)
+                put("lastQueryAt", a.lastQueryAt)
                 put("lastResult", a.lastResult ?: "")
                 put("creditLeft", a.creditLeft)
                 put("creditTotal", a.creditTotal)

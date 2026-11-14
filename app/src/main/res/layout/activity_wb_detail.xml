@@ -234,7 +234,35 @@
                             android:layout_height="wrap_content"
                             android:textColor="?android:attr/textColorSecondary"
                             android:textSize="13sp"
-                            tools:text="刚刚" />
+                            tools:text="11-14" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="@color/ds_divider" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:paddingVertical="14dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/wb_detail_updated"
+                            android:textColor="?android:attr/textColorSecondary"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:id="@+id/tvDataUpdated"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textColor="?android:attr/textColorSecondary"
+                            android:textSize="13sp"
+                            tools:text="更新于 刚刚" />
                     </LinearLayout>
 
                     <!-- 签到活动累计获得，与上方「剩余额度」是两个概念 -->
