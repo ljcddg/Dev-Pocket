@@ -10,7 +10,7 @@
 
 | 页面 | 能力 |
 | --- | --- |
-| **对话** | 选择密钥和模型、流式 Markdown 回复、历史搜索和置顶、回答版本、附件、图片预览和回答朗读 |
+| **对话** | 选择密钥和模型、流式 Markdown 回复、深度思考、联网检索、历史搜索和置顶、回答版本、附件预览和回答朗读 |
 | **余额** | 管理多个 AI 平台密钥（DeepSeek / Kimi / 智谱 GLM），逐个查询账户余额，支持一键刷新全部与定时刷新 |
 | **签到** | 登录 WorkBuddy 账号，查看连续签到天数、剩余额度、签到累计积分；单独签到，或点右上角一键签到全部未签账号 |
 | **积分详情** | 短按账号卡片进入：剩余额度、总计 / 已用、连签奖励进度、28 天签到日历、套餐明细 |
@@ -21,7 +21,7 @@
 - **密钥加密**：API Key 经 Android Keystore 硬件加密后落盘（AES-256/GCM，每条记录独立随机 IV），不落明文、不参与备份（`allowBackup=false`）
 - **三家商家**：添加密钥时选商家，App 按商家调用对应的余额接口。不做「自动识别」——DeepSeek 和 Kimi 的密钥都是 `sk-` 开头，靠前缀猜必然出错
 - **多密钥管理**：一个账号一张卡片，可改名、可删除，同一密钥自动去重，卡片上标出所属商家
-- **定时刷新**：可设 1 / 5 / 30 / 60 分钟或自定义间隔，页面停留期间按间隔轮询；离开页面立即停止，App 在后台不产生任何请求
+- **定时刷新**可设 1 / 5 / 30 / 60 分钟或自定义间隔，前台按间隔轮询余额和签到数据。
 - **一键签到**：右上角一次点完所有账号。账号之间串行、间隔 1~3 秒，今日已签的账号在本地就跳过、不发请求，避免并发突发这种一眼能看出是脚本的节奏
 - **自动签到**：设定时间后到点自动执行。闹钟只带每日 0~90 秒抖动（避免每天同一秒）；**随机浮动在执行阶段完成**——每个账号开始前独立随机等待 1~3 / 5~15 / 10~30 秒（档位可选），串行 + 每个账号各自错开，比整批统一偏移更接近真人手动节奏；执行自带 2.5 分钟预算，超限优雅收尾并由补偿闹钟重试
 - **检查更新**：冷启动静默查一次 GitHub Releases（一天最多一次，失败不打扰），有新版本弹窗可选「立即下载 / 跳过」；下载走系统 DownloadManager，完成后自动拉起安装界面；设置页也有手动「检查更新」入口
@@ -36,11 +36,9 @@
 
 ## 安装
 
-前往 [Releases](https://github.com/ljcddg/Dev-Pocket/releases) 下载最新的 `DevPocket-v1.11.2.apk` 直接安装（需允许安装未知来源应用）。旧版本覆盖升级后，也可以直接在 App 内「设置 → 关于 → 检查更新」完成升级。
+下载最新的 `DevPocket-*.apk` 安装。已安装同签名版本的用户可以直接覆盖，也可以在 App 内打开「设置 → 关于 → 检查更新」。[GitHub Releases](https://github.com/ljcddg/Dev-Pocket/releases/latest)
 
-- 最低支持 Android 7.0（API 24），目标版本 Android 17（API 37）
-- 已验证：编译通过（debug / release），冷启动、三家余额查询、一键签到的调用链；自动签到涉及系统闹钟与厂商后台策略，**建议在自己的真机上跑一遍**再长期依赖
-- 覆盖升级不需要卸载——同名同签名即可
+- 最低支持 Android 7.0（API 24），目标版本为 API 37。
 
 ---
 
@@ -48,11 +46,16 @@
 
 ### 对话
 
-在底部打开「对话」，点右上角齿轮，按平台、备注和尾号选择余额页中的密钥，再选择模型。发送后可以停止生成。每条回答下方可复制、评价、分享、朗读或重新生成。左右箭头切换回答版本，后续提问会使用当前选中的版本。
+1. 到「余额」添加 DeepSeek、Kimi 或智谱 GLM 的 API Key。
+2. 打开「对话」，点右上角齿轮，按平台、备注和尾号选择密钥，再选择模型。
+3. 在底部输入并发送消息。生成期间可以停止。回答下方可复制、评价、分享、朗读或重新生成。用左右箭头切换回答版本，后续提问会使用当前选中的版本。
 
 左上角可打开历史侧栏，搜索问题或当前回答。长按会话即可置顶或删除。旧版没有记录时间的会话归入「更早」。
 
-选择 DeepSeek 密钥后，开启智能搜索会先联网检索，再根据检索资料回答，并列出来源。深度思考模式可实时查看模型返回的思考过程。使用 DeepSeek Flash 时可发送附件。点输入框旁的 ⊕ 可拍照、选图片或选文件，每条消息可附一个附件。已选图片会显示缩略图，点 × 可移除。文件在发送时上传至 DeepSeek，应用请求云端保留 24 小时。过期后继续这段对话需要能够读取原文件。文档解析、搜索及对话按平台规则计费。
+- **智能搜索**适用于 DeepSeek 密钥。需要检索时，App 会先联网获取资料，再将资料交给模型。回答下方的「检索来源」可以展开，点标题或域名所在一行即可打开网页。
+- **日期与会话回顾**直接读取设备日历或当前会话，支持「今天周几」「昨天几号」「我刚才问你什么了」等独立问句。其他模型请求会附带设备当前时间和时区。
+- **深度思考**会实时显示模型返回的思考内容。回答完成后可以展开查看，切换版本会显示对应的思考过程。
+- **附件**适用于 DeepSeek Flash。点输入框旁的 ⊕ 可拍照、从相册选择图片或选择文件，每条消息可附一个附件。图片以缩略图预览，点 × 可移除。发送时上传至 DeepSeek，应用请求云端保留 24 小时。附件过期后，继续对话需要能读取原文件。文档解析、搜索和对话按平台规则计费。
 
 回答下的扬声器可朗读或停止，需设备有可用的系统语音服务。
 
@@ -113,8 +116,8 @@
 
 ## 安全与隐私
 
-- 所有请求直连官方域名（`api.deepseek.com` / `api.moonshot.cn` / `open.bigmodel.cn` / `copilot.tencent.com`），项目本身没有任何服务端
-- DeepSeek API Key 使用 Android Keystore 生成的工作密钥加密，密文存在应用私有目录；设备被 root 前，其他应用读不到
+- 对话、余额、签到请求直连对应平台。应用通过 GitHub Releases 检查和下载更新。点检索来源时，系统交给浏览器打开相应站点。
+- API Key 使用 Android Keystore 管理的密钥加密，密文保存在应用私有目录。
 - WorkBuddy 令牌（accessToken / refreshToken）同样加密存储，令牌内容仅用于调用其官方接口
 - 未接入任何统计、埋点、崩溃上报 SDK
 - 应用清单里有网络与自动签到相关权限：`INTERNET`、`ACCESS_NETWORK_STATE`、`RECEIVE_BOOT_COMPLETED`、`SCHEDULE_EXACT_ALARM`、`USE_EXACT_ALARM`、`POST_NOTIFICATIONS`、`FOREGROUND_SERVICE`、`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
@@ -130,17 +133,23 @@
 | --- | --- |
 | 语言 / 构建 | Kotlin，AGP 9.5.1，Gradle 9.6，JDK 25（Android Studio 自带 JBR） |
 | 最低 / 目标版本 | minSdk 24，targetSdk 37 |
-| UI | 原生 View + Material Components，ViewBinding，`BottomNavigationView` 三个 Tab |
-| 网络 | `HttpURLConnection` + `org.json`，无线程池外的第三方库 |
+| UI | 原生 View、Material Components、ViewBinding。底部导航包括对话、余额、签到和设置 |
+| 对话 | SQLite 保存会话和回答版本。Markwon 渲染 Markdown，Glide 加载图片预览 |
+| 网络 | `HttpURLConnection` + `org.json`。对话使用 SSE 接收流式回答 |
 | 加密 | Android Keystore（AES/GCM/NoPadding） |
 | 主题 | `AppCompatDelegate` 三档切换，偏好持久化到 SharedPreferences |
 
 ### 调用的接口
 
-> 均为客户端侧观察所得，**非公开文档接口**，服务端随时可能调整字段或路径。
+> WorkBuddy 路径根据客户端调用整理，服务端可能调整字段或路径。
 
 | 用途 | 方法与路径 |
 | --- | --- |
+| DeepSeek 对话 | `POST https://api.deepseek.com/chat/completions` |
+| Kimi 对话 | `POST https://api.moonshot.cn/v1/chat/completions` |
+| 智谱 GLM 对话 | `POST https://open.bigmodel.cn/api/paas/v4/chat/completions` |
+| DeepSeek 智能搜索 | `POST https://api.deepseek.com/v1/tools/search` |
+| DeepSeek 附件上传 | `POST https://api.deepseek.com/files` |
 | DeepSeek 余额 | `GET https://api.deepseek.com/user/balance` |
 | Kimi 余额 | `GET https://api.moonshot.cn/v1/users/me/balance` |
 | 智谱 GLM 余额（主） | `GET https://open.bigmodel.cn/api/paas/v4/users/me/balance` |
@@ -201,6 +210,10 @@ export JAVA_HOME=/path/to/android-studio/jbr
 
 | 版本 | 主要变更 |
 | --- | --- |
+| **v1.11.3** | 日期和星期按设备日历回答。直接回顾上一条消息。检索来源改为可展开的卡片，旧回答里的来源也可点击打开 |
+| **v1.11.2** | 修复键盘遮挡输入框和发送按钮的问题。收起键盘后保留多行草稿 |
+| **v1.11.1** | 智能搜索接入 DeepSeek 联网检索。思考过程实时显示并随回答版本保存。历史改为可搜索的滑动侧栏，附件支持图片预览 |
+| **v1.11.0** | 新增原生 API 对话。支持选择密钥与模型、流式 Markdown、历史和置顶、回答版本、附件及朗读 |
 | **v1.9.1** | WorkBuddy 卡片的「上次签到」原来被写成刷新时刻，现改为「更新于」（上次成功查询时间），「上次签到」取自签到日历的真实日期，签到时间只在实际领取成功时记录；设置分组改称「数据刷新」并说明余额与签到共用；「关于」改为准确列出各商家接口与 copilot.tencent.com、GitHub Releases；清理只提 DeepSeek 的文案（页标题/空状态/错误提示/密钥长度提示） |
 | **v1.9** | 连签天数改为本地按签到日期计算（服务端 streak_days 实为总天数）；随机浮动重构为「每个账号独立随机间隔」，删除仅工作日选项；新增 GitHub 检查更新（自动 + 手动、DownloadManager 下载并拉起安装）；详情页签到统一走 CheckinEngine（先查后领 + 全局互斥）；shortService 超时兜底；打开 App 的自动刷新遵循设置间隔（上次刷新时间持久化）；签到批次进度可见、可加速；WorkBuddy 卡改为显示「更新于」（上次查询时间），「上次签到」取自签到日历真实日期 |
 | **v1.7** | 新增 Kimi 与智谱 GLM 余额查询，添加密钥页可选商家；新增余额定时刷新（1/5/30/60 分钟或自定义，仅前台）；设置页按「外观 / 余额 / 自动签到 / 后台权限 / 关于」分组重排 |
