@@ -22,4 +22,9 @@ object ChatPreferences {
     var thinking: Boolean
         get() = SecureStore.getString("chat_thinking") == "true"
         set(value) = SecureStore.putString("chat_thinking", value.toString())
+
+    /** 智能搜索开关：保存用户意图，是否可用由当前密钥的 provider 决定。 */
+    var search: Boolean
+        get() = SecureStore.getString("chat_search") == "true"
+        set(value) = SecureStore.putString("chat_search", value.toString())
 }

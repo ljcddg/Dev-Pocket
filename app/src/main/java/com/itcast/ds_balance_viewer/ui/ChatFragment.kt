@@ -57,6 +57,8 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private var speech: TextToSpeech? = null
     private var speechReady = false
     private var running = false
+    /** 程序化回填开关时挡掉回调，避免把「当前不可用」误存成偏好关闭。 */
+    private var bindingSearch = false
     private val markdown by lazy {
         Markwon.builder(requireContext().applicationContext)
             .usePlugin(TablePlugin.create(requireContext().applicationContext))
@@ -68,6 +70,22 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             }).build()
     }
     private fun toast(message: String) { context?.let { Toast.makeText(it,message,Toast.LENGTH_SHORT).show() } }
+
+    /**
+     * 剥离模型常见的畸形 Markdown 加粗标记。
+     *
+     * CommonMark 规定 `**` 紧邻标点时不构成合法定界符，模型却常输出
+     * 「是**"打杂"**」这类形式，渲染器于是把两颗星原样留在正文里，
+     * 屏幕上看就是莫名其妙的 `**`。这类定界符反正不会生效，直接删除，
+     * 保留纯文本；合法的 `**加粗**`（两侧为文字）不受影响。
+     */
+    private fun cleanMarkdown(text: String): String = text
+        // 开口星号后紧跟标点 → 无效，删除（`**"词"`、`**，` 等）
+        .replace(Regex("""\*\*(?=[""'""''，。、；：？！）】》〕］｝])"""), "")
+        // 闭口星号前紧跟标点 → 无效，删除（`（词）**`、`词**，` 等）
+        .replace(Regex("""(?<=[（【《〔［｛""''"''])\*\*"""), "")
+        // 三个以上连续星号不属于任何合法语法，直接剥离
+        .replace(Regex("""\*{3,}"""), "")
 
     private fun openWebLink(link: String) {
         val uri = Uri.parse(link.trim()).normalizeScheme()
@@ -210,6 +228,13 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         b.history.setOnClickListener { refreshHistory(); b.root.openDrawer(b.historyPanel) }
         b.thinking.isChecked = ChatPreferences.thinking
         b.thinking.setOnCheckedChangeListener { _, value -> ChatPreferences.thinking = value }
+        bindingSearch = true
+        b.search.isChecked = ChatPreferences.search && searchSupported()
+        bindingSearch = false
+        b.search.setOnCheckedChangeListener { _, value ->
+            if (bindingSearch) return@setOnCheckedChangeListener
+            ChatPreferences.search = value
+        }
         b.send.setOnClickListener {
             if (chat.state.value?.busy == true) {
                 chat.stop()
@@ -244,7 +269,9 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         val key = ChatPreferences.key
         b.model.text = chat.state.value?.turns?.firstOrNull()?.question ?: key?.let { ChatPreferences.model(it.provider) } ?: "对话"
         b.search.isEnabled = searchSupported() && !running
-        if (!searchSupported()) b.search.isChecked = false
+        bindingSearch = true
+        b.search.isChecked = ChatPreferences.search && searchSupported()
+        bindingSearch = false
         b.setup.isVisible = key == null
     }
 
@@ -514,7 +541,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 val reply = addMessage("", false)
                 if (state.busy && state.target == turn.id) lastReply = reply
                 else {
-                    markdown.setMarkdown(reply,turn.answer.ifEmpty { "尚未完成回复" })
+                    markdown.setMarkdown(reply,cleanMarkdown(turn.answer.ifEmpty { "尚未完成回复" }))
                     showSources(turn.sources)
                     if (!state.busy) actions(turn)
                 }
@@ -528,7 +555,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             isVisible = state.reasoning.isNotBlank()
             text = "思考过程\n\n" + state.reasoning
         }
-        lastReply?.let { markdown.setMarkdown(it,answer) }
+        lastReply?.let { markdown.setMarkdown(it,cleanMarkdown(answer)) }
         refreshKey()
         b.welcome.isVisible = state.turns.isEmpty()
         b.notice.text = state.notice
