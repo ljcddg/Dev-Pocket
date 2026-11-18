@@ -109,6 +109,9 @@ class WbLoginActivity : AppCompatActivity() {
 
         binding.webView.settings.apply {
             javaScriptEnabled = true
+            allowFileAccess = false
+            allowContentAccess = false
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             domStorageEnabled = true
             databaseEnabled = true
             cacheMode = WebSettings.LOAD_DEFAULT

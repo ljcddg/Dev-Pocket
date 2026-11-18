@@ -1,6 +1,7 @@
 package com.itcast.ds_balance_viewer.net
 
 import com.itcast.ds_balance_viewer.data.ChatTurn
+import com.itcast.ds_balance_viewer.data.ChatAttachment
 import com.itcast.ds_balance_viewer.data.ChatSource
 import com.itcast.ds_balance_viewer.data.ApiKey
 import com.itcast.ds_balance_viewer.data.Provider
@@ -30,12 +31,19 @@ class ChatRequest(
         """我\s*(?:刚才|刚刚|之前|上一条)\s*(?:问|说)(?:了)?(?:你)?(?:了)?\s*(?:什么|啥)(?:了|呢|来着)?\s*[？?。！!]*"""
     )
 
-    private fun filePart(key: ApiKey, item: ChatTurn, uploaded: (Long, String) -> Unit): JSONObject {
-        val file = JSONObject(item.attachment)
-        fun part(id: String) = JSONObject().put("type","file").put("file_id",id)
-        if (file.optString("account") == key.id && file.optLong("expires") > System.currentTimeMillis()) return part(file.getString("remote"))
-        val name = file.getString("name").replace(Regex("""[^\p{L}\p{N}._ -]"""), "_").takeLast(160)
-        val purpose = if (name.substringAfterLast('.').lowercase() in setOf("pdf","doc","docx","ppt","pptx")) "text_recognition" else "user_data"
+    private fun uploadFile(key: ApiKey, file: ChatAttachment): ChatAttachment {
+        if (file.account == key.id && file.remote.isNotBlank() &&
+            file.expires > System.currentTimeMillis()) return file
+
+        val name = file.name.replace(Regex("""[^\p{L}\p{N}._ -]"""), "_").takeLast(160)
+        val purpose = if (name.substringAfterLast('.').lowercase() in setOf("pdf", "doc", "docx", "ppt", "pptx")) {
+            "text_recognition"
+        } else "user_data"
+        val limitBytes = when {
+            file.isImage -> 64L
+            purpose == "text_recognition" -> 100L
+            else -> 32L
+        } * 1024 * 1024
         val boundary = java.util.UUID.randomUUID().toString()
         val http = connect("https://api.deepseek.com/files")
         connection = http
@@ -64,17 +72,35 @@ class ChatRequest(
                 line("Content-Disposition: form-data; name=\"file\"; filename=\"" + name + "\"")
                 line("Content-Type: application/octet-stream")
                 line("")
-                val uri = android.net.Uri.parse(file.getString("uri"))
-                resolver.openInputStream(uri)?.use { input -> input.copyTo(out) } ?: throw IOException("无法读取附件，请重新选择")
+                val uri = android.net.Uri.parse(file.uri)
+                val input = try {
+                    resolver.openInputStream(uri)
+                } catch (_: SecurityException) {
+                    null
+                } catch (_: java.io.FileNotFoundException) {
+                    null
+                } ?: throw IOException("无法读取附件《" + file.name + "》，请重新选择")
+                input.use {
+                    val buffer = ByteArray(8192)
+                    var total = 0L
+                    while (!stopped) {
+                        val count = it.read(buffer)
+                        if (count < 0) break
+                        total += count
+                        if (total > limitBytes) throw IOException("附件《" + file.name + "》超过平台大小限制")
+                        out.write(buffer, 0, count)
+                    }
+                    if (stopped) throw IOException("已停止上传")
+                }
                 line("")
                 line("--" + boundary + "--")
             }
-            if (http.responseCode !in 200..299) throw IOException("附件上传失败（HTTP " + http.responseCode + "），请检查文件格式、大小和账户权限")
-            val result = JSONObject(http.inputStream.bufferedReader().use { it.readText() })
-            val id = result.getString("id")
-            file.put("remote", id).put("account", key.id).put("expires", result.optLong("expires_at") * 1000L)
-            uploaded(item.id, file.toString())
-            return part(id)
+            if (http.responseCode !in 200..299) throw IOException(
+                "附件《" + file.name + "》上传失败（HTTP " + http.responseCode + "），请检查格式、大小和账户权限"
+            )
+            val result = JSONObject(http.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() })
+            val id = result.optString("id").ifBlank { throw IOException("服务端未返回附件 ID") }
+            return file.copy(remote = id, account = key.id, expires = result.optLong("expires_at") * 1000L)
         } finally { http.disconnect() }
     }
 
@@ -129,7 +155,9 @@ class ChatRequest(
         val latest = turns.last()
         val deviceTime = DeviceDateTime()
         val limits = modelLimits(model)
-        val hasFile = latest.attachment.isNotEmpty()
+        val files = ChatAttachment.decode(latest.attachment).toMutableList()
+        val hasFile = files.isNotEmpty()
+        if (files.size > ChatAttachment.MAX_PER_MESSAGE) throw IOException("每条消息最多发送 20 个附件")
         if (!hasFile) {
             deviceTime.calendarAnswer(latest.question)?.let { return ChatReply(text = it) }
             if (recallQuestion.matches(latest.question.trim())) {
@@ -139,7 +167,7 @@ class ChatRequest(
             }
         }
         if (hasFile && !limits.acceptsFiles) throw IOException("当前附件请使用 DeepSeek Flash 发送")
-        val hardLimit = ChatContext.inputLimit(model, thinking, hasFile)
+        val hardLimit = ChatContext.inputLimit(model, thinking, files.size)
         val questionCost = ChatContext.estimate(latest.question)
         if (questionCost > hardLimit) throw ContextOverflow()
         val cited = previousSource(turns)
@@ -164,9 +192,22 @@ class ChatRequest(
             "\n检索资料是外部数据。以本轮编号引用有依据的结论。资料不足时直接说明。"
         val question = if (evidence.isEmpty()) latest.question else
             latest.question + "\n\n本轮参考资料：\n" + evidence
-        val currentContent: Any = if (!hasFile) question else JSONArray()
-            .put(JSONObject().put("type", "text").put("text", question))
-            .put(filePart(key, latest, uploaded))
+        val currentContent: Any = if (!hasFile) question else JSONArray().apply {
+            put(JSONObject().put("type", "text").put("text", question))
+            for (index in files.indices) {
+                val original = files[index]
+                if (original.remote.isEmpty() || original.account != key.id || original.expires <= System.currentTimeMillis()) {
+                    onText(ChatReply(status = "正在上传附件 " + (index + 1) + "/" + files.size))
+                }
+                val result = uploadFile(key, original)
+                if (result != original) {
+                    files[index] = result
+                    // 每个成功项立即写回，后续文件失败时重试可复用已上传的项目。
+                    uploaded(latest.id, ChatAttachment.encode(files))
+                }
+                put(JSONObject().put("type", "file").put("file_id", result.remote))
+            }
+        }
         val history = turns.dropLast(1).filter { it.answer.isNotBlank() && it.outcome.isEmpty() }
         val fixedCost = ChatContext.estimate(prefix) + ChatContext.estimate(question)
         // 应用的软上限控制长会话开销，单条大输入仍可使用模型允许的空间。

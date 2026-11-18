@@ -3,6 +3,7 @@ package com.itcast.ds_balance_viewer
 import androidx.test.platform.app.InstrumentationRegistry
 import com.itcast.ds_balance_viewer.data.ApiKey
 import com.itcast.ds_balance_viewer.data.ChatSource
+import com.itcast.ds_balance_viewer.data.ChatAttachment
 import com.itcast.ds_balance_viewer.data.ChatTurn
 import com.itcast.ds_balance_viewer.net.ChatMemory
 import com.itcast.ds_balance_viewer.net.ChatRequest
@@ -40,6 +41,39 @@ class ChatContextTest {
         "data: " + JSONObject().put("choices", org.json.JSONArray().put(JSONObject()
             .put("delta", JSONObject().put("content", text).put("reasoning_content", reason))
             .put("finish_reason", finish))) + "\n\n"
+
+    @Test fun resumesMultipartSelectionWithoutUploadingCompletedFilesAgain() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val file = java.io.File.createTempFile("attachment-test", ".txt", ctx.cacheDir)
+        try {
+            file.writeText("附件正文")
+            val uri = android.net.Uri.fromFile(file).toString()
+            val initial = ChatAttachment.encode(listOf(ChatAttachment(uri, "资料.txt"), ChatAttachment(uri, "图片.jpg")))
+            var saved = initial
+            val first = """{"id":"file-api-1","expires_at":2100000000}"""
+            val second = """{"id":"file-api-2","expires_at":2100000000}"""
+            val turn = ChatTurn(1, "比较附件", "", attachment = initial)
+            val failed = runCatching {
+                request(200 to first, 500 to "").stream(key, "deepseek-flash", false, listOf(turn),
+                    { _, metadata -> saved = metadata }) {}
+            }
+            assertTrue(failed.isFailure)
+            assertEquals("file-api-1", ChatAttachment.decode(saved).first().remote)
+            assertEquals("", ChatAttachment.decode(saved).last().remote)
+            endpoints.clear()
+            payloads.clear()
+            request(200 to second, 200 to chunk("上传完成", finish = "stop")).stream(
+                key, "deepseek-flash", false, listOf(turn.copy(attachment = saved)), { _, _ -> }
+            ) {}
+            assertEquals(1, endpoints.count { it.endsWith("/files") })
+            val requestJson = JSONObject(payloads.last().toString("UTF-8"))
+            val parts = requestJson.getJSONArray("messages").getJSONObject(1).getJSONArray("content")
+            assertEquals("file-api-1", parts.getJSONObject(1).getString("file_id"))
+            assertEquals("file-api-2", parts.getJSONObject(2).getString("file_id"))
+        } finally {
+            file.delete()
+        }
+    }
 
     @Test fun oldFilesDoNotUploadAfterModelSwitchAndEofKeepsPartial() {
         val turns = listOf(ChatTurn(1, "旧问题", "旧附件摘要", attachment = "过期附件"), ChatTurn(2, "新问题", ""))

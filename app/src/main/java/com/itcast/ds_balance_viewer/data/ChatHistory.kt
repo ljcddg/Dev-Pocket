@@ -146,13 +146,23 @@ class ChatHistory(context: Context, name: String = "conversations.db") : SQLiteO
     }
 
     fun delete(session: String) {
+        deleteMany(listOf(session))
+    }
+
+    fun deleteMany(sessions: Collection<String>): Int {
+        if (sessions.isEmpty()) return 0
         val db = writableDatabase
+        var count = 0
         db.beginTransaction()
         try {
-            db.execSQL("DELETE FROM replies WHERE turn IN (SELECT id FROM turns WHERE session=?)", arrayOf(session))
-            db.delete("turns", "session = ?", arrayOf(session))
-            db.delete("chat_memory", "session = ?", arrayOf(session))
+            for (session in sessions.toSet()) {
+                val args = arrayOf(session)
+                db.execSQL("DELETE FROM replies WHERE turn IN (SELECT id FROM turns WHERE session=?)", args)
+                if (db.delete("turns", "session = ?", args) > 0) count++
+                db.delete("chat_memory", "session = ?", args)
+            }
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
+        return count
     }
 }

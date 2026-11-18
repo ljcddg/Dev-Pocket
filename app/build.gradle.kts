@@ -20,8 +20,8 @@ android {
         applicationId = "com.itcast.ds_balance_viewer"
         minSdk = 24
         targetSdk = 37
-        versionCode = 17
-        versionName = "1.11.4"
+        versionCode = 18
+        versionName = "1.11.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -72,14 +72,27 @@ android {
 
 dependencies {
     implementation(libs.androidx.appcompat)
+    implementation("androidx.activity:activity:1.7.2")
     implementation(libs.androidx.core.ktx)
     implementation("io.noties.markwon:core:4.6.2")
     implementation("io.noties.markwon:ext-tables:4.6.2")
     implementation("io.noties.markwon:ext-strikethrough:4.6.2")
+    implementation("io.noties.markwon:syntax-highlight:4.6.2")
+    implementation("io.noties:prism4j:2.0.0")
+    annotationProcessor("io.noties:prism4j-bundler:2.0.0")
+    // 使用带行内源码位置的 CommonMark 解析器区分正文标记和显式转义。
+    implementation("org.commonmark:commonmark:0.21.0")
+    implementation("org.commonmark:commonmark-ext-gfm-tables:0.21.0")
+    implementation("org.commonmark:commonmark-ext-gfm-strikethrough:0.21.0")
     implementation("com.github.bumptech.glide:glide:4.16.0")
     implementation(libs.material)
     implementation(libs.androidx.recyclerview)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
+}
+
+configurations.configureEach {
+    exclude(group = "com.atlassian.commonmark")
+    exclude(group = "org.jetbrains", module = "annotations-java5")
 }

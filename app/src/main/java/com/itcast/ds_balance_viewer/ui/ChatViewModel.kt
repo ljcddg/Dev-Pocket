@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.MutableLiveData
 import com.itcast.ds_balance_viewer.data.ChatHistory
+import com.itcast.ds_balance_viewer.data.ChatAttachment
 import com.itcast.ds_balance_viewer.data.ChatPreferences
 import com.itcast.ds_balance_viewer.data.ChatTurn
 import com.itcast.ds_balance_viewer.data.SecureStore
@@ -46,8 +47,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteMany(ids: Collection<String>): Int {
         if (active != null || ids.isEmpty()) return 0
-        var count = 0
-        for (id in ids) { history.delete(id); count++ }
+        val count = history.deleteMany(ids)
         if (ids.contains(session)) open()
         return count
     }
@@ -57,7 +57,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         if (active != null) return false
         val model = ChatPreferences.model(key.provider)
         val thinking = ChatPreferences.thinking
-        if (question != null && ChatContext.estimate(question) > ChatContext.inputLimit(model, thinking, attachment.isNotEmpty())) {
+        if (question != null && ChatContext.estimate(question) > ChatContext.inputLimit(model, thinking, ChatAttachment.decode(attachment).size)) {
             state.value = state.value!!.copy(notice = "这条消息超过所选模型的输入预算，请缩短后再发送")
             return false
         }

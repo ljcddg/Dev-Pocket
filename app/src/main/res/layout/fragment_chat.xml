@@ -23,6 +23,11 @@
             <LinearLayout android:id="@+id/messages" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:orientation="vertical" android:padding="16dp" />
         </ScrollView>
+        <ImageButton android:id="@+id/jumpLatest" android:layout_width="48dp" android:layout_height="48dp"
+            android:layout_gravity="bottom|end" android:layout_margin="12dp"
+            android:background="@drawable/chat_surface" android:elevation="4dp" android:visibility="gone"
+            android:contentDescription="跳到最新回复" android:src="@drawable/chat_next" android:rotation="90"
+            android:tint="?android:attr/textColorPrimary" />
         <LinearLayout android:id="@+id/welcome" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_gravity="center" android:gravity="center" android:orientation="vertical">
             <ImageView android:layout_width="48dp" android:layout_height="48dp" android:padding="11dp"
@@ -37,12 +42,11 @@
         android:paddingHorizontal="18dp" android:accessibilityLiveRegion="polite" android:textSize="13sp" />
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_margin="12dp"
         android:elevation="3dp" android:orientation="vertical" android:padding="8dp" android:background="@drawable/chat_surface">
-        <LinearLayout android:id="@+id/previewRow" android:layout_width="wrap_content" android:layout_height="wrap_content" android:gravity="top" android:visibility="gone">
-            <ImageView android:id="@+id/thumbnail" android:layout_width="80dp" android:layout_height="80dp" android:scaleType="centerCrop" android:contentDescription="已选图片" />
-            <ImageButton android:id="@+id/removePhoto" android:layout_width="40dp" android:layout_height="40dp" android:background="?attr/selectableItemBackgroundBorderless" android:tint="?android:attr/textColorPrimary" android:src="@android:drawable/ic_menu_close_clear_cancel" android:contentDescription="移除图片" />
-        </LinearLayout>
-        <TextView android:id="@+id/attachment" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:padding="8dp" android:visibility="gone" android:background="@drawable/chat_bubble" />
+        <HorizontalScrollView android:id="@+id/attachmentPreview" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:visibility="gone" android:scrollbars="none">
+            <LinearLayout android:id="@+id/attachmentItems" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:orientation="horizontal" android:padding="4dp" />
+        </HorizontalScrollView>
         <EditText android:id="@+id/input" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:minHeight="48dp" android:maxLines="5" android:hint="输入消息…" android:inputType="textMultiLine|textCapSentences"
             android:textSize="16sp" android:paddingHorizontal="10dp" android:background="@android:color/transparent" />

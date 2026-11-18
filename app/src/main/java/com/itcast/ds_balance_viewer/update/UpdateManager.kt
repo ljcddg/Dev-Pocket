@@ -113,22 +113,32 @@ object UpdateManager {
     }
 
     /** 下载完成的收尾：校验是我们自己的任务且成功，再拉起安装界面 */
-    fun handleDownloadComplete(context: Context) {
-        val id = UpdatePref.pendingDownloadId
-        if (id == 0L) return
-        UpdatePref.pendingDownloadId = 0L
+    @Synchronized
+    fun handleDownloadComplete(context: Context, id: Long) {
+        if (id <= 0L || id != UpdatePref.pendingDownloadId) return
 
         val ctx = context.applicationContext
         val dm = ctx.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         dm.query(DownloadManager.Query().setFilterById(id))?.use { cursor ->
             if (!cursor.moveToFirst()) return
             val statusIdx = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
-            if (cursor.getInt(statusIdx) != DownloadManager.STATUS_SUCCESSFUL) return
+            when (cursor.getInt(statusIdx)) {
+                DownloadManager.STATUS_FAILED -> {
+                    if (UpdatePref.pendingDownloadId == id) UpdatePref.pendingDownloadId = 0L
+                    return
+                }
+                DownloadManager.STATUS_SUCCESSFUL -> Unit
+                else -> return
+            }
             val localUri = cursor.getString(cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI))
                 ?: return
             val path = Uri.parse(localUri).path ?: return
             val file = File(path)
             if (!file.exists() || file.length() <= 0L) return
+            if (!isAppUpdate(ctx, file)) {
+                if (UpdatePref.pendingDownloadId == id) UpdatePref.pendingDownloadId = 0L
+                return
+            }
 
             val apkUri = FileProvider.getUriForFile(
                 ctx,
@@ -140,8 +150,23 @@ object UpdateManager {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
+            if (UpdatePref.pendingDownloadId != id) return
+            UpdatePref.pendingDownloadId = 0L
             runCatching { ctx.startActivity(intent) }
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun isAppUpdate(context: Context, file: File): Boolean {
+        val packages = context.packageManager
+        val flags = android.content.pm.PackageManager.GET_SIGNATURES
+        return runCatching {
+            val current = packages.getPackageInfo(context.packageName, flags)
+            val candidate = packages.getPackageArchiveInfo(file.path, flags) ?: return false
+            val installedSigners = current.signatures.orEmpty().toSet()
+            candidate.packageName == current.packageName && installedSigners.isNotEmpty() &&
+                candidate.signatures.orEmpty().toSet() == installedSigners
+        }.getOrDefault(false)
     }
 }
 
@@ -150,6 +175,15 @@ class DownloadCompleteReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
-        UpdateManager.handleDownloadComplete(context)
+        val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+        if (id <= 0L || UpdatePref.pendingDownloadId != id) return
+        val pending = goAsync()
+        com.itcast.ds_balance_viewer.util.AppExecutors.io.execute {
+            try {
+                UpdateManager.handleDownloadComplete(context.applicationContext, id)
+            } finally {
+                pending.finish()
+            }
+        }
     }
 }

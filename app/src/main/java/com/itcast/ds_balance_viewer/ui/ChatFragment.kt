@@ -11,6 +11,7 @@ import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import android.widget.*
 import android.speech.tts.TextToSpeech
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import androidx.core.widget.doAfterTextChanged
@@ -39,6 +40,7 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import com.itcast.ds_balance_viewer.R
 import com.itcast.ds_balance_viewer.data.ChatPreferences
+import com.itcast.ds_balance_viewer.data.ChatAttachment
 import com.itcast.ds_balance_viewer.data.ChatSource
 import com.itcast.ds_balance_viewer.data.ChatTurn
 import com.itcast.ds_balance_viewer.data.TokenUsage
@@ -51,9 +53,9 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private val chat by lazy { ViewModelProvider(this)[ChatViewModel::class.java] }
     private var displayed: List<ChatTurn>? = null
     private var liveReasoning: TextView? = null
-    private var lastReply: TextView? = null
+    private var lastReply: LinearLayout? = null
 
-    private var pending = ""
+    private val pending = mutableListOf<ChatAttachment>()
     private var camera: Uri? = null
     private var speech: TextToSpeech? = null
     private var speechReady = false
@@ -63,11 +65,24 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     /** 历史抽屉的批量删除选择状态。 */
     private var batchMode = false
     private val selectedIds = mutableSetOf<String>()
+    private val prism by lazy { CodeGrammars.create() }
+    private val codeTheme by lazy {
+        val dark = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        if (dark) io.noties.markwon.syntax.Prism4jThemeDarkula.create()
+        else io.noties.markwon.syntax.Prism4jThemeDefault.create()
+    }
+    private val codeHighlight by lazy { io.noties.markwon.syntax.Prism4jSyntaxHighlight.create(prism, codeTheme) }
     private val markdown by lazy {
         Markwon.builder(requireContext().applicationContext)
             .usePlugin(TablePlugin.create(requireContext().applicationContext))
             .usePlugin(StrikethroughPlugin.create())
+            .usePlugin(io.noties.markwon.syntax.SyntaxHighlightPlugin.create(prism, codeTheme))
             .usePlugin(object : io.noties.markwon.AbstractMarkwonPlugin() {
+                override fun configureParser(builder: org.commonmark.parser.Parser.Builder) {
+                    ReplyMarkdown.configure(builder)
+                }
+
                 override fun configureConfiguration(builder: io.noties.markwon.MarkwonConfiguration.Builder) {
                     builder.linkResolver { _, link -> openWebLink(link) }
                 }
@@ -75,25 +90,64 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     }
     private fun toast(message: String) { context?.let { Toast.makeText(it,message,Toast.LENGTH_SHORT).show() } }
 
-    /**
-     * 剥离模型常见的畸形 Markdown 加粗标记。
-     *
-     * CommonMark 规定 `**` 紧邻标点时不构成合法定界符，模型却常输出
-     * 「是**"打杂"**」这类形式，渲染器于是把两颗星原样留在正文里，
-     * 屏幕上看就是莫名其妙的 `**`。这类定界符反正不会生效，直接删除，
-     * 保留纯文本；合法的 `**加粗**`（两侧为文字）不受影响。
-     */
-    private fun cleanMarkdown(text: String): String = text
-        // 开口星号后紧跟标点 → 无效，删除（`**"词"`、`**，` 等）
-        .replace(Regex("""\*\*(?=[""'""''，。、；：？！）】》〕］｝])"""), "")
-        // 闭口星号前紧跟标点 → 无效，删除（`（词）**`、`词**，` 等）
-        .replace(Regex("""(?<=[（【《〔［｛""''"''])\*\*"""), "")
-        // 三个以上连续星号不属于任何合法语法，直接剥离
-        .replace(Regex("""\*{3,}"""), "")
+    private fun replyMarkdown(text: String, streaming: Boolean = false): android.text.Spanned =
+        markdown.render(ReplyMarkdown.repair(markdown.parse(text), text, streaming))
+
+    private fun renderReply(container: LinearLayout, text: String, streaming: Boolean = false) {
+        if (container.tag == text) return
+        container.tag = text
+        val document = ReplyMarkdown.repair(markdown.parse(text), text, streaming)
+        var position = 0
+        var prose = org.commonmark.node.Document()
+
+        fun place(view: View) {
+            if (container.getChildAt(position) !== view) {
+                if (position < container.childCount) container.removeViewAt(position)
+                container.addView(view, position, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+            }
+            position++
+        }
+
+        fun renderProse() {
+            if (prose.firstChild == null) return
+            val view = container.getChildAt(position) as? TextView ?: TextView(container.context).apply {
+                textSize = 16f
+                setTextIsSelectable(true)
+                setLineSpacing(dp(3).toFloat(), 1f)
+                setTextColor(binding!!.input.currentTextColor)
+                setPadding(dp(2), dp(4), dp(2), dp(4))
+            }
+            markdown.setParsedMarkdown(view, markdown.render(prose))
+            place(view)
+            prose = org.commonmark.node.Document()
+        }
+
+        while (document.firstChild != null) {
+            when (val node = document.firstChild) {
+                is org.commonmark.node.FencedCodeBlock -> {
+                    renderProse()
+                    val view = container.getChildAt(position) as? ChatCodeView ?: ChatCodeView(container.context)
+                    view.bind(node.info, node.literal, codeHighlight, streaming)
+                    place(view)
+                    node.unlink()
+                }
+                is org.commonmark.node.IndentedCodeBlock -> {
+                    renderProse()
+                    val view = container.getChildAt(position) as? ChatCodeView ?: ChatCodeView(container.context)
+                    view.bind(null, node.literal, codeHighlight, streaming)
+                    place(view)
+                    node.unlink()
+                }
+                else -> prose.appendChild(node)
+            }
+        }
+        renderProse()
+        if (position < container.childCount) container.removeViews(position, container.childCount - position)
+    }
 
     private fun openWebLink(link: String) {
         val uri = Uri.parse(link.trim()).normalizeScheme()
-        if (uri.scheme !in listOf("https", "http") || uri.host.isNullOrBlank()) {
+        if (uri.scheme !in listOf("https", "http") || uri.host.isNullOrBlank() || uri.userInfo != null) {
             toast("来源链接无效")
             return
         }
@@ -105,84 +159,192 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             toast("系统限制了此链接的打开")
         }
     }
-    private val document = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null && uri.scheme == "content" && uri.authority != requireContext().packageName + ".fileprovider") {
-            runCatching {
-                val resolver = requireContext().contentResolver
-                resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                val name = resolver.query(uri,arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),null,null,null)?.use {
-                    if (it.moveToFirst()) it.getString(0) else null
-                } ?: "附件"
-                stage(uri,name)
-            }.onFailure { toast("无法读取所选文件，请重新选择") }
-        }
-    }
+    private val documents = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments(), ::addPickedFiles)
+    private val gallery = registerForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(ChatAttachment.MAX_PER_MESSAGE), ::addPickedFiles
+    )
     private val photo = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        camera?.let { if (ok) stage(it,"拍摄照片.jpg") else requireContext().contentResolver.delete(it,null,null) }
+        camera?.let { uri ->
+            if (ok) {
+                pending += ChatAttachment(uri.toString(), "拍摄照片.jpg", "image/jpeg")
+                showAttachment()
+            } else requireContext().contentResolver.delete(uri, null, null)
+        }
         camera = null
     }
-    private fun stage(uri: Uri, name: String) {
-        pending = JSONObject().put("uri",uri.toString()).put("name",name)
-            .put("mime",requireContext().contentResolver.getType(uri).orEmpty()).toString()
+
+    private fun addPickedFiles(uris: List<Uri>) {
+        val ctx = requireContext()
+        val resolver = ctx.contentResolver
+        var failed = 0
+        var limited = false
+        for (uri in uris.distinct()) {
+            if (pending.any { it.uri == uri.toString() }) continue
+            if (pending.size >= ChatAttachment.MAX_PER_MESSAGE) {
+                limited = true
+                break
+            }
+            // 只接受外部选择器返回的内容 URI，拍照使用应用自己生成的 URI。
+            if (uri.scheme != "content" || uri.authority.isNullOrEmpty() ||
+                uri.authority == ctx.packageName + ".fileprovider") {
+                failed++
+                continue
+            }
+            runCatching {
+                resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                val name = resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                    ?.use { if (it.moveToFirst()) it.getString(0) else null } ?: "附件"
+                pending += ChatAttachment(uri.toString(), name, resolver.getType(uri).orEmpty())
+            }.onFailure { failed++ }
+        }
+        if (limited) toast("每条消息最多添加 20 个附件")
+        if (failed > 0) toast("有 " + failed + " 个文件无法读取，请重新选择")
         showAttachment()
     }
+
+    private fun clearAttachment() {
+        pending.clear()
+        showAttachment()
+    }
+
     private fun showAttachment() {
         val b = binding ?: return
-        val item = pending.takeIf { it.isNotEmpty() }?.let(::JSONObject)
-        val name = item?.optString("name").orEmpty()
-        val image = item?.optString("mime")?.startsWith("image/") == true ||
-            name.substringAfterLast('.').lowercase() in setOf("jpg","jpeg","png","gif","webp","heic","heif")
-        b.previewRow.isVisible = image
-        b.attachment.isVisible = item != null && !image
-        Glide.with(this).clear(b.thumbnail)
-        if (image && item != null) {
-            Glide.with(this).load(Uri.parse(item.getString("uri"))).override(dp(160)).centerCrop()
-                .transform(com.bumptech.glide.load.resource.bitmap.CenterCrop(),com.bumptech.glide.load.resource.bitmap.RoundedCorners(dp(10)))
-                .diskCacheStrategy(DiskCacheStrategy.NONE).error(android.R.drawable.ic_menu_gallery).into(b.thumbnail)
-        } else b.attachment.text = "📎  " + name + "    ×"
+        b.attachmentPreview.isVisible = pending.isNotEmpty()
+        fillAttachmentRow(b.attachmentItems, pending) { file ->
+            pending.remove(file)
+            showAttachment()
+        }
     }
+
+    private fun fillAttachmentRow(
+        row: LinearLayout, items: List<ChatAttachment>, remove: ((ChatAttachment) -> Unit)? = null
+    ) {
+        val ctx = row.context
+        row.removeAllViews()
+        for (file in items) {
+            val tile = FrameLayout(ctx).apply {
+                setBackgroundResource(R.drawable.chat_bubble)
+                clipToOutline = true
+            }
+            if (file.isImage) {
+                val image = ImageView(ctx).apply {
+                    contentDescription = "预览 " + file.name
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    setOnClickListener { previewImage(file) }
+                }
+                tile.addView(image, FrameLayout.LayoutParams(-1, -1))
+                Glide.with(this).load(Uri.parse(file.uri)).override(dp(160)).centerCrop()
+                    .diskCacheStrategy(DiskCacheStrategy.NONE).error(android.R.drawable.ic_menu_gallery).into(image)
+            } else {
+                tile.addView(TextView(ctx).apply {
+                    text = file.name
+                    textSize = 13f
+                    gravity = Gravity.BOTTOM
+                    maxLines = 2
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    setPadding(dp(10), dp(10), dp(10), dp(8))
+                }, FrameLayout.LayoutParams(-1, -1))
+            }
+            if (remove != null) {
+                tile.addView(ImageButton(ctx).apply {
+                    contentDescription = "移除 " + file.name
+                    setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+                    setBackgroundResource(R.drawable.chat_surface)
+                    setPadding(dp(8), dp(8), dp(8), dp(8))
+                    setOnClickListener { remove(file) }
+                }, FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP or Gravity.END))
+            }
+            row.addView(tile, LinearLayout.LayoutParams(dp(if (file.isImage) 80 else 126), dp(80)).apply {
+                marginEnd = dp(8)
+            })
+        }
+    }
+
+    private fun previewImage(file: ChatAttachment) {
+        val ctx = requireContext()
+        val image = ImageView(ctx).apply { adjustViewBounds = true }
+        val dialog = AlertDialog.Builder(ctx).setTitle(file.name).setView(image)
+            .setPositiveButton("关闭", null).create()
+        dialog.setOnDismissListener { Glide.with(ctx).clear(image) }
+        dialog.show()
+        val size = resources.displayMetrics.widthPixels
+        Glide.with(this).load(Uri.parse(file.uri)).override(size, size).fitCenter()
+            .diskCacheStrategy(DiskCacheStrategy.NONE).error(android.R.drawable.ic_menu_gallery).into(image)
+    }
+
     private fun attachments() {
         val ctx = requireContext()
         val sheet = BottomSheetDialog(ctx)
-        val row = LinearLayout(ctx).apply { setPadding(dp(12),dp(20),dp(12),dp(20)) }
-        listOf("拍照","相册","文件").forEachIndexed { index, label ->
-            row.addView(Button(ctx).apply {
+        val content = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(18), dp(16), dp(20))
+        }
+        content.addView(TextView(ctx).apply {
+            text = if (pending.isEmpty()) "添加附件" else "已选 " + pending.size + " / " + ChatAttachment.MAX_PER_MESSAGE
+            textSize = 16f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+        })
+        if (pending.isNotEmpty()) {
+            content.addView(HorizontalScrollView(ctx).apply {
+                isHorizontalScrollBarEnabled = false
+                addView(LinearLayout(ctx).also { fillAttachmentRow(it, pending) })
+            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+        }
+        val row = LinearLayout(ctx)
+        val actions = listOf(
+            Triple("拍照", android.R.drawable.ic_menu_camera, {
+                val dir = File(ctx.filesDir, "chat_photos").apply { mkdirs() }
+                val file = File.createTempFile("photo_", ".jpg", dir)
+                val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", file)
+                camera = uri
+                try { photo.launch(uri) } catch (error: ActivityNotFoundException) {
+                    camera = null
+                    file.delete()
+                    throw error
+                }
+            }),
+            Triple("相册", android.R.drawable.ic_menu_gallery, {
+                gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }),
+            Triple("文件", android.R.drawable.ic_menu_save, { documents.launch(arrayOf("*/*")) })
+        )
+        actions.forEach { (label, icon, open) ->
+            row.addView(com.google.android.material.button.MaterialButton(ctx).apply {
                 text = label
+                setIconResource(icon)
+                iconGravity = com.google.android.material.button.MaterialButton.ICON_GRAVITY_TEXT_TOP
+                iconPadding = dp(4)
+                isEnabled = pending.size < ChatAttachment.MAX_PER_MESSAGE
                 setOnClickListener {
                     sheet.dismiss()
-                    runCatching {
-                        when (index) {
-                            0 -> {
-                                val dir = File(ctx.filesDir,"chat_photos").apply { mkdirs() }
-                                val file = File.createTempFile("photo_",".jpg",dir)
-                                val uri = FileProvider.getUriForFile(ctx,ctx.packageName + ".fileprovider",file)
-                                camera = uri
-                                photo.launch(uri)
-                            }
-                            1 -> document.launch(arrayOf("image/jpeg","image/png","image/webp","image/gif"))
-                            else -> document.launch(arrayOf("*/*"))
-                        }
-                    }.onFailure { toast("系统无法打开" + label) }
+                    runCatching(open).onFailure { toast("系统无法打开" + label) }
                 }
-            }, LinearLayout.LayoutParams(0,dp(68),1f))
+            }, LinearLayout.LayoutParams(0, dp(70), 1f).apply { marginEnd = dp(4) })
         }
-        sheet.setContentView(row)
+        content.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        sheet.setContentView(content)
         sheet.show()
     }
+
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        outState.putString("pending",pending)
+        outState.putString("pending", ChatAttachment.encode(pending))
         outState.putString("camera",camera?.toString())
     }
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentChatBinding.bind(view)
         binding = b
-        pending = savedInstanceState?.getString("pending") ?: pending
+        savedInstanceState?.getString("pending")?.let {
+            pending.clear()
+            pending.addAll(ChatAttachment.decode(it))
+        }
         camera = savedInstanceState?.getString("camera")?.let(Uri::parse) ?: camera
         showAttachment()
-        b.attachment.setOnClickListener { pending = ""; showAttachment() }
-        b.removePhoto.setOnClickListener { pending = ""; showAttachment() }
         b.attach.setOnClickListener { attachments() }
+        b.jumpLatest.setOnClickListener { b.scroll.smoothScrollTo(0, b.messages.height) }
+        b.scroll.setOnScrollChangeListener { _, _, _, _, _ ->
+            b.jumpLatest.isVisible = b.scroll.canScrollVertically(1)
+        }
         val toolbarHeight = b.header.layoutParams.height
         b.historyPanel.layoutParams = b.historyPanel.layoutParams.apply { width = (resources.displayMetrics.widthPixels * .82f).toInt() }
         val back = object : OnBackPressedCallback(false) {
@@ -244,7 +406,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         b.setup.setOnClickListener { settings() }
         b.settings.setOnClickListener { settings() }
         b.model.setOnClickListener { settings() }
-        b.newChat.setOnClickListener { chat.open(); b.input.text.clear(); pending = ""; showAttachment() }
+        b.newChat.setOnClickListener { chat.open(); b.input.text.clear(); clearAttachment() }
         b.history.setOnClickListener { refreshHistory(); b.root.openDrawer(b.historyPanel) }
         b.thinking.isChecked = ChatPreferences.thinking
         b.thinking.setOnCheckedChangeListener { _, value -> ChatPreferences.thinking = value }
@@ -264,8 +426,8 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                     ChatPreferences.key == null -> settings()
                     pending.isNotEmpty() && !flash() -> toast("请在对话设置中选择 DeepSeek Flash 发送附件")
                     question.isEmpty() && pending.isEmpty() -> b.input.requestFocus()
-                    chat.send(question.ifEmpty { "请分析这个附件" }, attachment = pending, search = searchSupported() && b.search.isChecked) -> {
-                        pending = ""; showAttachment()
+                    chat.send(question.ifEmpty { "请分析这些附件" }, attachment = ChatAttachment.encode(pending), search = searchSupported() && b.search.isChecked) -> {
+                        clearAttachment()
                         b.input.text.clear()
                         requireContext().getSystemService(InputMethodManager::class.java)
                             ?.hideSoftInputFromWindow(b.input.windowToken, 0)
@@ -358,7 +520,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         b.batchDelete.isVisible = batchMode
         if (batchMode) {
             b.batchCount.text = "已选 ${selectedIds.size} 项"
-            b.batchAll.isEnabled = selectedIds.size < visibleSessionIds().size
+            b.batchAll.isEnabled = visibleSessionIds().any { it !in selectedIds }
             b.batchNone.isEnabled = selectedIds.isNotEmpty()
             b.batchDelete.isEnabled = selectedIds.isNotEmpty()
         }
@@ -402,7 +564,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 } else {
                     title.setPadding(dp(6),0,dp(6),0)
                     title.setOnClickListener {
-                        chat.open(item.id); pending = ""; showAttachment()
+                        chat.open(item.id); clearAttachment()
                         b.input.text.clear(); b.root.closeDrawer(b.historyPanel)
                     }
                     title.setOnLongClickListener {
@@ -568,7 +730,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             }
             action("有帮助",R.drawable.chat_like,selected = turn.vote == 1) { chat.vote(turn,1) }
             action("没帮助",R.drawable.chat_dislike,selected = turn.vote == -1) { chat.vote(turn,-1) }
-            action("朗读或停止",R.drawable.chat_speak) { readAloud(markdown.toMarkdown(turn.answer).toString()) }
+            action("朗读或停止",R.drawable.chat_speak) { readAloud(replyMarkdown(turn.answer).toString()) }
             action("分享回答",R.drawable.chat_share) {
                 startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,exported),"分享回答"))
             }
@@ -602,8 +764,14 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             liveReasoning = null
             lastReply = null
             for (turn in state.turns) {
-                val name = if (turn.attachment.isEmpty()) "" else "\n📎 " + JSONObject(turn.attachment).optString("name")
-                addMessage(turn.question + name, true)
+                addMessage(turn.question, true)
+                val files = ChatAttachment.decode(turn.attachment)
+                if (files.isNotEmpty()) {
+                    b.messages.addView(HorizontalScrollView(requireContext()).apply {
+                        isHorizontalScrollBarEnabled = false
+                        addView(LinearLayout(context).also { fillAttachmentRow(it, files) })
+                    }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+                }
                 val activeTurn = state.busy && state.target == turn.id
                 if (activeTurn || turn.reasoning.isNotBlank()) {
                     val thought = addMessage("",false).apply {
@@ -617,14 +785,15 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                         var expanded = false
                         thought.setOnClickListener {
                             expanded = !expanded
-                            thought.text = if (expanded) "收起思考过程  ▴\n\n" + turn.reasoning else "查看思考过程  ▾"
+                            thought.text = if (expanded) replyMarkdown("收起思考过程  ▴\n\n" + turn.reasoning) else "查看思考过程  ▾"
                         }
                     }
                 }
-                val reply = addMessage("", false)
+                val reply = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL }
+                b.messages.addView(reply, -1, -2)
                 if (state.busy && state.target == turn.id) lastReply = reply
                 else {
-                    markdown.setMarkdown(reply,cleanMarkdown(turn.answer.ifEmpty { "尚未完成回复" }))
+                    renderReply(reply, turn.answer.ifEmpty { "尚未完成回复" })
                     showUsage(turn.usage)
                     if (turn.outcome.isNotEmpty()) addMessage(turn.outcome, false).apply {
                         textSize = 13f
@@ -641,9 +810,9 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         } else state.turns.lastOrNull()?.answer.orEmpty().ifEmpty { "尚未完成回复" }
         liveReasoning?.apply {
             isVisible = state.reasoning.isNotBlank()
-            text = "思考过程\n\n" + state.reasoning
+            text = replyMarkdown("思考过程\n\n" + state.reasoning, streaming = state.busy)
         }
-        lastReply?.let { markdown.setMarkdown(it,cleanMarkdown(answer)) }
+        lastReply?.let { renderReply(it, answer, streaming = state.busy) }
         refreshKey()
         b.welcome.isVisible = state.turns.isEmpty()
         b.notice.text = state.notice
@@ -661,7 +830,10 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         }
         b.send.setImageResource(if (state.busy) R.drawable.ic_stop_chat else R.drawable.ic_send_chat)
         b.send.contentDescription = if (state.busy) "停止生成" else "发送"
-        if (follow) b.scroll.post { b.scroll.scrollTo(0, b.messages.height) }
+        b.scroll.post {
+            if (follow) b.scroll.scrollTo(0, b.messages.height)
+            b.jumpLatest.isVisible = b.scroll.canScrollVertically(1)
+        }
     }
 
     private fun addMessage(content: String, user: Boolean): TextView {

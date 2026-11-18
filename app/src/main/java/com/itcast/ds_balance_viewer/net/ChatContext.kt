@@ -27,10 +27,10 @@ internal object ChatContext {
 
     fun cost(turn: ChatTurn): Long = estimate(turn.question).toLong() + estimate(turn.answer) + 24
 
-    fun inputLimit(model: String, thinking: Boolean, hasFile: Boolean): Int {
+    fun inputLimit(model: String, thinking: Boolean, fileCount: Int): Int {
         val limits = modelLimits(model)
         // 服务端解析文件后才知道实际开销，预留空间并允许服务端报告精确超限。
-        return limits.window - limits.output(thinking) - 2048 - if (hasFile) 16_384 else 0
+        return limits.window - limits.output(thinking) - 2048 - 16_384 * fileCount.coerceAtMost(20)
     }
 
     fun recent(turns: List<ChatTurn>, budget: Int): List<ChatTurn> {

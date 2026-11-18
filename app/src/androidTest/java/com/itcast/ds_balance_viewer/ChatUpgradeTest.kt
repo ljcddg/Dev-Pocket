@@ -20,6 +20,7 @@ import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import org.hamcrest.Matchers.not
+import org.hamcrest.Matchers.containsString
 
 class ChatUpgradeTest {
     private val ctx = InstrumentationRegistry.getInstrumentation().targetContext
@@ -92,7 +93,7 @@ class ChatUpgradeTest {
             val attachment = JSONObject().put("uri",android.net.Uri.fromFile(file)).put("name","test.txt").toString()
             val turn = ChatTurn(3,"总结","",attachment=attachment,search=true)
             val result = request.stream(ApiKey(alias="测试",secret="fixture"),"deepseek-flash",false,listOf(turn),{ _, data ->
-                assertEquals("file-api-test",JSONObject(data).getString("remote"))
+                assertEquals("file-api-test", ChatAttachment.decode(data).single().remote)
             }) {}
             assertTrue(result.text.contains("**答复**"))
             assertEquals(listOf(ChatSource("测试来源", "https://example.org/report", "最新公告摘要")), result.sources)
@@ -132,10 +133,12 @@ class ChatUpgradeTest {
         val previous = SecureStore.getString("chat_session")
         try {
             val turn = history.ask(session, "测试来源")
-            history.answer(turn.id, "正文\n\n**本次检索来源**\n\n- [1 · 测试报告](https://example.org/report)")
+            history.answer(turn.id,
+                "1. **要点：**历史正文。\n\n| 键 | 值 |\n| --- | --- |\n| A | `x**y` |" +
+                    "\n\n**本次检索来源**\n\n- [1 · 测试报告](https://example.org/report)")
             SecureStore.putString("chat_session", session)
             ActivityScenario.launch(MainActivity::class.java).use {
-                onView(withText("正文")).check(matches(isDisplayed()))
+                onView(withText(containsString("要点：历史正文。"))).check(matches(isDisplayed()))
                 onView(withText("测试报告")).check(matches(not(isDisplayed())))
                 onView(withText("检索来源 · 1")).perform(click())
                 onView(withText("example.org")).check(matches(isDisplayed()))
@@ -147,6 +150,83 @@ class ChatUpgradeTest {
             if (previous == null) SecureStore.remove("chat_session") else SecureStore.putString("chat_session", previous)
             history.delete(session)
             history.close()
+        }
+    }
+
+    @Test fun codeCardHighlightsJavaAndCopiesOnlyCode() {
+        val history = ChatHistory(ctx)
+        val session = java.util.UUID.randomUUID().toString()
+        val previous = SecureStore.getString("chat_session")
+        val code = "public class Example { int count = 3; }"
+        try {
+            val turn = history.ask(session, "显示代码")
+            history.answer(turn.id, "示例\n\n```java\n$code\n```\n\n代码之后")
+            SecureStore.putString("chat_session", session)
+            ActivityScenario.launch(MainActivity::class.java).use { activity ->
+                onView(withText("java")).check(matches(isDisplayed()))
+                onView(withText(code)).check { view, error ->
+                    if (error != null) throw error
+                    val highlighted = (view as android.widget.TextView).text as android.text.Spanned
+                    assertTrue(highlighted.getSpans(0, highlighted.length, android.text.style.ForegroundColorSpan::class.java).isNotEmpty())
+                }
+                onView(withContentDescription("复制代码")).perform(click())
+                activity.onActivity {
+                    val clipboard = it.getSystemService(android.content.ClipboardManager::class.java)
+                    assertEquals("$code\n", clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+                }
+            }
+        } finally {
+            if (previous == null) SecureStore.remove("chat_session") else SecureStore.putString("chat_session", previous)
+            history.delete(session)
+            history.close()
+        }
+    }
+
+    @Test fun attachmentsOpenMultiSelectSystemPickers() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val observed = java.util.concurrent.LinkedBlockingQueue<Intent>()
+        val watcher = object : android.app.Instrumentation.ActivityMonitor() {
+            override fun onStartActivity(intent: Intent): android.app.Instrumentation.ActivityResult? {
+                if (intent.action == Intent.ACTION_OPEN_DOCUMENT || intent.action == android.provider.MediaStore.ACTION_PICK_IMAGES) {
+                    observed.add(intent)
+                    return android.app.Instrumentation.ActivityResult(android.app.Activity.RESULT_CANCELED, null)
+                }
+                return null
+            }
+        }
+        instrumentation.addMonitor(watcher)
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                onView(withContentDescription("添加附件")).perform(click())
+                onView(withText("文件")).perform(click())
+                val files = observed.poll(3, java.util.concurrent.TimeUnit.SECONDS)
+                assertEquals(Intent.ACTION_OPEN_DOCUMENT, files?.action)
+                assertEquals(true, files?.getBooleanExtra(Intent.EXTRA_ALLOW_MULTIPLE, false))
+
+                onView(withContentDescription("添加附件")).perform(click())
+                onView(withText("相册")).perform(click())
+                val photos = observed.poll(3, java.util.concurrent.TimeUnit.SECONDS)
+                assertEquals("image/*", photos?.type)
+                assertTrue(photos?.action == android.provider.MediaStore.ACTION_PICK_IMAGES ||
+                    photos?.getBooleanExtra(Intent.EXTRA_ALLOW_MULTIPLE, false) == true)
+            }
+        } finally {
+            instrumentation.removeMonitor(watcher)
+        }
+    }
+
+    @Test fun deletingMultipleSessionsCountsOnlyExistingSessions() {
+        val name = "batch-test-" + System.nanoTime()
+        try {
+            ChatHistory(ctx, name).use { history ->
+                history.answer(history.ask("a", "甲").id, "回答甲")
+                history.answer(history.ask("b", "乙").id, "回答乙")
+                history.ask("c", "保留")
+                assertEquals(2, history.deleteMany(listOf("a", "b", "missing", "a")))
+                assertEquals(listOf("c"), history.sessions().map { it.id })
+            }
+        } finally {
+            ctx.deleteDatabase(name)
         }
     }
 }
