@@ -2,4 +2,5 @@
 <paths>
     <!-- DownloadManager 下载到 getExternalFilesDir("Download")，FileProvider 对外授权 -->
     <external-files-path name="downloads" path="Download/" />
+    <files-path name="chat_photos" path="chat_photos/" />
 </paths>

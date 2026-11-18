@@ -1,0 +1,57 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@color/ds_card" android:focusableInTouchMode="true" android:orientation="vertical">
+    <LinearLayout android:id="@+id/header" android:layout_width="match_parent" android:layout_height="60dp"
+        android:gravity="center_vertical" android:background="@color/ds_card" android:paddingHorizontal="6dp">
+        <ImageButton android:id="@+id/history" android:layout_width="48dp" android:layout_height="48dp"
+            android:contentDescription="历史对话" android:src="@drawable/ic_history_chat" android:tint="?android:attr/textColorPrimary"
+            android:background="?attr/selectableItemBackgroundBorderless" />
+        <TextView android:id="@+id/model" android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:gravity="center" android:textSize="17sp" android:textStyle="bold"
+            android:textColor="?android:attr/textColorPrimary" android:maxLines="2" android:ellipsize="end" />
+        <ImageButton android:id="@+id/settings" android:layout_width="48dp" android:layout_height="48dp"
+            android:contentDescription="对话设置" android:src="@drawable/ic_settings" android:tint="?android:attr/textColorPrimary"
+            android:background="?attr/selectableItemBackgroundBorderless" />
+        <ImageButton android:id="@+id/newChat" android:layout_width="48dp" android:layout_height="48dp"
+            android:contentDescription="新对话" android:src="@drawable/ic_add" android:tint="?android:attr/textColorPrimary"
+            android:background="?attr/selectableItemBackgroundBorderless" />
+    </LinearLayout>
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <ScrollView android:id="@+id/scroll" android:layout_width="match_parent" android:layout_height="match_parent">
+            <LinearLayout android:id="@+id/messages" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:padding="16dp" />
+        </ScrollView>
+        <LinearLayout android:id="@+id/welcome" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_gravity="center" android:gravity="center" android:orientation="vertical">
+            <ImageView android:layout_width="48dp" android:layout_height="48dp" android:padding="11dp"
+                android:src="@drawable/ic_chat" android:background="@drawable/chat_accent" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="16dp"
+                android:text="欢迎回来，随时开始吧" android:textSize="24sp" android:textStyle="bold" android:textColor="?android:attr/textColorPrimary" />
+            <Button android:id="@+id/setup" style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="选择对话 API" />
+        </LinearLayout>
+    </FrameLayout>
+    <TextView android:id="@+id/notice" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:paddingHorizontal="18dp" android:accessibilityLiveRegion="polite" android:textSize="13sp" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_margin="12dp"
+        android:elevation="3dp" android:orientation="vertical" android:padding="8dp" android:background="@drawable/chat_surface">
+        <TextView android:id="@+id/attachment" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:padding="8dp" android:visibility="gone" android:background="@drawable/chat_bubble" />
+        <EditText android:id="@+id/input" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="48dp" android:maxLines="5" android:hint="输入消息…" android:inputType="textMultiLine|textCapSentences"
+            android:textSize="16sp" android:paddingHorizontal="10dp" android:background="@android:color/transparent" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
+            <androidx.appcompat.widget.SwitchCompat android:id="@+id/thinking" android:layout_width="wrap_content"
+                android:layout_height="48dp" android:text="深度思考 " android:textSize="13sp" />
+            <CheckBox android:id="@+id/search" android:layout_width="wrap_content" android:layout_height="48dp" android:text="智能搜索" android:textSize="13sp" />
+            <Space android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1" />
+            <TextView android:id="@+id/attach" android:contentDescription="添加附件" android:text="⊕"
+                android:textSize="26sp" android:gravity="center" android:layout_width="44dp" android:layout_height="48dp" />
+            <TextView android:id="@+id/voice" android:contentDescription="语音输入" android:text="语音"
+                android:gravity="center" android:layout_width="44dp" android:layout_height="48dp" />
+            <ImageButton android:id="@+id/send" android:layout_width="48dp" android:layout_height="48dp"
+            android:contentDescription="发送" android:src="@drawable/ic_send_chat" android:tint="@color/white"
+            android:background="@drawable/chat_accent" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

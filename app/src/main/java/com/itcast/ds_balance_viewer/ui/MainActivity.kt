@@ -10,7 +10,7 @@ import com.itcast.ds_balance_viewer.databinding.ActivityMainBinding
 import com.itcast.ds_balance_viewer.update.UpdateManager
 
 /**
- * 主界面：底部导航 + 三个 Tab。
+ * 主界面：底部导航切换对话、余额、签到和设置。
  *
  * 「余额」放 DeepSeek 密钥管理，「签到」放 WorkBuddy 账号签到，
  * 「设置」原先挂在余额页工具栏的齿轮里，现在独立成一个 Tab。
@@ -38,6 +38,10 @@ class MainActivity : AppCompatActivity() {
 
         binding.bottomNav.setOnItemSelectedListener { item ->
             when (item.itemId) {
+                R.id.tab_chat -> {
+                    showTab("frag_chat") { ChatFragment() }
+                    true
+                }
                 R.id.tab_balance -> {
                     showTab(tagBalance) { BalanceFragment() }
                     true
@@ -55,7 +59,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (savedInstanceState == null) {
-            binding.bottomNav.selectedItemId = R.id.tab_balance
+            binding.bottomNav.selectedItemId = R.id.tab_chat
             // 冷启动静默检查一次 GitHub Releases（一天最多一次），有新版本才弹窗
             UpdateManager.maybeAutoCheck(this)
         }
@@ -63,6 +67,8 @@ class MainActivity : AppCompatActivity() {
 
     /** 显示指定 tag 的 Fragment，隐藏其余 */
     private fun showTab(tag: String, factory: () -> Fragment) {
+        val light = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) != android.content.res.Configuration.UI_MODE_NIGHT_YES
+        androidx.core.view.WindowCompat.getInsetsController(window, binding.root).isAppearanceLightStatusBars = tag == "frag_chat" && light
         val fm = supportFragmentManager
         val transaction = fm.beginTransaction()
         fm.fragments.forEach { if (it.tag != tag) transaction.hide(it) }

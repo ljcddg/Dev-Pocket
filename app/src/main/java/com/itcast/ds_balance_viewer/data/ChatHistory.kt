@@ -1,0 +1,102 @@
+package com.itcast.ds_balance_viewer.data
+
+import android.content.ContentValues
+import android.content.Context
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
+
+data class ChatTurn(val id: Long, val question: String, val answer: String, val versions: List<String> = emptyList(), val selected: Int = 0, val vote: Int = 0, val attachment: String = "", val search: Boolean = false)
+data class ChatSession(val id: String, val title: String, val updated: Long, val pinned: Boolean)
+
+/** 每个问题独立保存，网络中断后可以重新回答最后一题。 */
+class ChatHistory(context: Context, name: String = "conversations.db") : SQLiteOpenHelper(context, name, null, 2) {
+    override fun onCreate(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE turns (id INTEGER PRIMARY KEY, session TEXT NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '')")
+        db.execSQL("CREATE INDEX session_turns ON turns(session, id)")
+        onUpgrade(db, 1, 2)
+    }
+
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        db.execSQL("ALTER TABLE turns ADD COLUMN created INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE turns ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE turns ADD COLUMN attachment TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE turns ADD COLUMN search INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE turns ADD COLUMN selected INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("CREATE TABLE replies(turn INTEGER NOT NULL, version INTEGER NOT NULL, body TEXT NOT NULL, vote INTEGER DEFAULT 0, PRIMARY KEY(turn,version))")
+        db.execSQL("INSERT INTO replies(turn,version,body) SELECT id,0,answer FROM turns WHERE answer <> ''")
+    }
+
+    fun sessions(query: String = ""): List<ChatSession> = readableDatabase.rawQuery(
+        """SELECT t.session, substr(t.question, 1, 42), s.updated, t.pinned FROM turns t
+           JOIN (SELECT min(id) first_id, max(id) last_id, max(created) updated FROM turns GROUP BY session) s
+           ON t.id = s.first_id WHERE EXISTS (SELECT 1 FROM turns x WHERE x.session=t.session AND (instr(lower(x.question),lower(?)) > 0 OR instr(lower(x.answer),lower(?)) > 0)) ORDER BY t.pinned DESC, s.last_id DESC""", arrayOf(query, query)
+    ).use { cursor ->
+        buildList { while (cursor.moveToNext()) add(ChatSession(cursor.getString(0), cursor.getString(1), cursor.getLong(2), cursor.getInt(3) != 0)) }
+    }
+
+    fun turns(session: String): List<ChatTurn> = readableDatabase.rawQuery(
+        "SELECT id, question, answer, selected, attachment, search FROM turns WHERE session = ? ORDER BY id", arrayOf(session)
+    ).use { cursor ->
+        buildList {
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(0)
+                val versions = mutableListOf<String>()
+                var vote = 0
+                readableDatabase.rawQuery("SELECT body,vote FROM replies WHERE turn=? ORDER BY version", arrayOf(id.toString())).use { rows ->
+                    while (rows.moveToNext()) {
+                        if (versions.size == cursor.getInt(3)) vote = rows.getInt(1)
+                        versions.add(rows.getString(0))
+                    }
+                }
+                add(ChatTurn(id, cursor.getString(1), cursor.getString(2), versions, cursor.getInt(3), vote, cursor.getString(4), cursor.getInt(5) != 0))
+            }
+        }
+    }
+
+    fun ask(session: String, question: String, attachment: String = "", search: Boolean = false): ChatTurn {
+        val id = writableDatabase.insertOrThrow("turns", null, ContentValues().apply {
+            put("session", session)
+            put("question", question)
+            put("created", System.currentTimeMillis())
+            put("attachment", attachment)
+            put("search", search)
+        })
+        return ChatTurn(id, question, "", attachment = attachment, search = search)
+    }
+
+    fun answer(id: Long, text: String) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.execSQL("INSERT INTO replies(turn,version,body) SELECT ?,count(*),? FROM replies WHERE turn=?", arrayOf(id,text,id))
+            db.execSQL("UPDATE turns SET answer=?, selected=(SELECT max(version) FROM replies WHERE turn=?) WHERE id=?", arrayOf(text,id,id))
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+
+    fun select(turn: ChatTurn, index: Int) {
+        writableDatabase.execSQL("UPDATE turns SET selected=?, answer=? WHERE id=?", arrayOf(index,turn.versions[index],turn.id))
+    }
+
+    fun vote(turn: ChatTurn, value: Int) {
+        writableDatabase.execSQL("UPDATE replies SET vote=? WHERE turn=? AND version=?", arrayOf(value,turn.id,turn.selected))
+    }
+
+    fun pin(item: ChatSession) {
+        writableDatabase.execSQL("UPDATE turns SET pinned=? WHERE session=?", arrayOf(if (item.pinned) 0 else 1,item.id))
+    }
+
+    fun uploaded(id: Long, attachment: String) {
+        writableDatabase.execSQL("UPDATE turns SET attachment=? WHERE id=?", arrayOf(attachment,id))
+    }
+
+    fun delete(session: String) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.execSQL("DELETE FROM replies WHERE turn IN (SELECT id FROM turns WHERE session=?)", arrayOf(session))
+            db.delete("turns", "session = ?", arrayOf(session))
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+}

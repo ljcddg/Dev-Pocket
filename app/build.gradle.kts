@@ -20,8 +20,8 @@ android {
         applicationId = "com.itcast.ds_balance_viewer"
         minSdk = 24
         targetSdk = 37
-        versionCode = 11
-        versionName = "1.9.1"
+        versionCode = 13
+        versionName = "1.11.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -36,6 +36,8 @@ android {
             }
         }
     }
+
+    testOptions.animationsDisabled = true
 
     buildTypes {
         release {
@@ -71,6 +73,9 @@ android {
 dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
+    implementation("io.noties.markwon:core:4.6.2")
+    implementation("io.noties.markwon:ext-tables:4.6.2")
+    implementation("io.noties.markwon:ext-strikethrough:4.6.2")
     implementation(libs.material)
     implementation(libs.androidx.recyclerview)
     testImplementation(libs.junit)
