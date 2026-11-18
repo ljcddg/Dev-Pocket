@@ -41,6 +41,7 @@ import com.itcast.ds_balance_viewer.R
 import com.itcast.ds_balance_viewer.data.ChatPreferences
 import com.itcast.ds_balance_viewer.data.ChatSource
 import com.itcast.ds_balance_viewer.data.ChatTurn
+import com.itcast.ds_balance_viewer.data.TokenUsage
 import com.itcast.ds_balance_viewer.data.KeyRepository
 import com.itcast.ds_balance_viewer.databinding.FragmentChatBinding
 import com.itcast.ds_balance_viewer.util.Formatting
@@ -59,6 +60,9 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private var running = false
     /** 程序化回填开关时挡掉回调，避免把「当前不可用」误存成偏好关闭。 */
     private var bindingSearch = false
+    /** 历史抽屉的批量删除选择状态。 */
+    private var batchMode = false
+    private val selectedIds = mutableSetOf<String>()
     private val markdown by lazy {
         Markwon.builder(requireContext().applicationContext)
             .usePlugin(TablePlugin.create(requireContext().applicationContext))
@@ -200,9 +204,25 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             override fun onDrawerClosed(drawerView: View) {
                 requireContext().getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(drawerView.windowToken,0)
                 b.historySearch.clearFocus()
+                if (batchMode) exitBatchMode()
             }
         })
         b.historySearch.doAfterTextChanged { refreshHistory() }
+        b.batchAll.setOnClickListener { visibleSessionIds().let { selectedIds.addAll(it); refreshHistory() } }
+        b.batchNone.setOnClickListener { selectedIds.clear(); refreshHistory() }
+        b.batchExit.setOnClickListener { exitBatchMode() }
+        b.batchDelete.setOnClickListener {
+            val ids = selectedIds.toSet()
+            if (ids.isEmpty()) { toast("请先选择要删除的对话"); return@setOnClickListener }
+            AlertDialog.Builder(requireContext()).setTitle("批量删除")
+                .setMessage("删除选中的 ${ids.size} 段对话及其所有回答？此操作不可恢复。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("删除") { _, _ ->
+                    val count = chat.deleteMany(ids)
+                    exitBatchMode()
+                    toast("已删除 $count 段对话")
+                }.show()
+        }
         val windowPosition = IntArray(2)
         ViewCompat.setOnApplyWindowInsetsListener(view) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
@@ -320,11 +340,28 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
 
     private fun addKey() = startActivity(Intent(requireContext(), AddKeyActivity::class.java))
 
+    private fun visibleSessionIds(): List<String> =
+        binding?.historySearch?.text?.toString()?.let { chat.sessions(it).map { s -> s.id } } ?: emptyList()
+
+    private fun exitBatchMode() {
+        batchMode = false
+        selectedIds.clear()
+        refreshHistory()
+    }
+
     private fun refreshHistory() {
         val b = binding ?: return
         val ctx = requireContext()
         val rows = b.historyRows
         val search = b.historySearch
+        b.batchBar.isVisible = batchMode
+        b.batchDelete.isVisible = batchMode
+        if (batchMode) {
+            b.batchCount.text = "已选 ${selectedIds.size} 项"
+            b.batchAll.isEnabled = selectedIds.size < visibleSessionIds().size
+            b.batchNone.isEnabled = selectedIds.isNotEmpty()
+            b.batchDelete.isEnabled = selectedIds.isNotEmpty()
+        }
         rows.removeAllViews()
         val today = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY,0); set(Calendar.MINUTE,0); set(Calendar.SECOND,0); set(Calendar.MILLISECOND,0) }
         val yesterday = (today.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR,-1) }
@@ -340,22 +377,68 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                     maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
                     setPadding(dp(6),0,dp(6),0)
                     setTextColor(binding!!.input.currentTextColor)
-                    setOnClickListener {
+                }
+                if (batchMode) {
+                    val check = CheckBox(ctx).apply {
+                        isChecked = item.id in selectedIds
+                        isClickable = false
+                        isFocusable = false
+                        buttonTintList = android.content.res.ColorStateList.valueOf(b.input.currentTextColor)
+                    }
+                    val row = LinearLayout(ctx).apply {
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(dp(6),0,dp(6),0)
+                        setBackgroundResource(android.R.drawable.list_selector_background)
+                        isFocusable = true
+                        addView(check, dp(34), dp(48))
+                        addView(title, LinearLayout.LayoutParams(0, -2, 1f))
+                        setOnClickListener {
+                            if (item.id in selectedIds) selectedIds.remove(item.id) else selectedIds.add(item.id)
+                            check.isChecked = item.id in selectedIds
+                            refreshHistory()
+                        }
+                    }
+                    rows.addView(row, -1, dp(52))
+                } else {
+                    title.setPadding(dp(6),0,dp(6),0)
+                    title.setOnClickListener {
                         chat.open(item.id); pending = ""; showAttachment()
                         b.input.text.clear(); b.root.closeDrawer(b.historyPanel)
                     }
-                    setOnLongClickListener {
-                        AlertDialog.Builder(ctx).setItems(arrayOf(if (item.pinned) "取消置顶" else "置顶","删除对话")) { _, choice ->
-                            if (choice == 0) { chat.pin(item); refreshHistory() }
-                            else AlertDialog.Builder(ctx).setMessage("删除这段对话和所有回答版本？")
-                                .setNegativeButton("取消",null).setPositiveButton("删除") { _, _ -> chat.delete(item.id); refreshHistory() }.show()
+                    title.setOnLongClickListener {
+                        AlertDialog.Builder(ctx).setItems(arrayOf(if (item.pinned) "取消置顶" else "置顶","删除对话","批量选择")) { _, choice ->
+                            when (choice) {
+                                0 -> { chat.pin(item); refreshHistory() }
+                                1 -> AlertDialog.Builder(ctx).setMessage("删除这段对话和所有回答版本？")
+                                    .setNegativeButton("取消",null).setPositiveButton("删除") { _, _ -> chat.delete(item.id); refreshHistory() }.show()
+                                else -> { batchMode = true; selectedIds.add(item.id); refreshHistory() }
+                            }
                         }.show()
                         true
                     }
+                    rows.addView(title, -1, dp(52))
                 }
-                rows.addView(title,-1,dp(52))
             }
         }
+    }
+
+    /** 回答下方的 token 用量小字。旧数据（usage 全为 0）不显示。 */
+    private fun showUsage(usage: TokenUsage) {
+        if (!usage.hasData) return
+        val b = binding ?: return
+        fun grouped(value: Int) = String.format(java.util.Locale.US, "%,d", value)
+        val text = buildString {
+            append("↑ 输入 ").append(grouped(usage.prompt))
+            append("  ·  ↓ 输出 ").append(grouped(usage.completion))
+            if (usage.reasoning > 0) append("（含思考 ").append(grouped(usage.reasoning)).append("）")
+            append("  ·  合计 ").append(grouped(usage.total)).append(" tokens")
+        }
+        b.messages.addView(TextView(b.messages.context).apply {
+            this.text = text
+            textSize = 12f
+            setTextColor(b.notice.currentTextColor)
+            setPadding(dp(2), 0, dp(2), dp(2))
+        }, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.START })
     }
 
     private fun showSources(sources: List<ChatSource>) {
@@ -542,6 +625,11 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 if (state.busy && state.target == turn.id) lastReply = reply
                 else {
                     markdown.setMarkdown(reply,cleanMarkdown(turn.answer.ifEmpty { "尚未完成回复" }))
+                    showUsage(turn.usage)
+                    if (turn.outcome.isNotEmpty()) addMessage(turn.outcome, false).apply {
+                        textSize = 13f
+                        setTextColor(b.notice.currentTextColor)
+                    }
                     showSources(turn.sources)
                     if (!state.busy) actions(turn)
                 }

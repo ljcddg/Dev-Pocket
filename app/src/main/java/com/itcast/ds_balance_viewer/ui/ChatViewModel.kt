@@ -8,6 +8,7 @@ import com.itcast.ds_balance_viewer.data.ChatPreferences
 import com.itcast.ds_balance_viewer.data.ChatTurn
 import com.itcast.ds_balance_viewer.data.SecureStore
 import com.itcast.ds_balance_viewer.net.ChatRequest
+import com.itcast.ds_balance_viewer.net.ChatContext
 import com.itcast.ds_balance_viewer.util.AppExecutors
 import java.io.IOException
 import java.net.SocketTimeoutException
@@ -43,25 +44,43 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         if (id == session) open()
     }
 
+    fun deleteMany(ids: Collection<String>): Int {
+        if (active != null || ids.isEmpty()) return 0
+        var count = 0
+        for (id in ids) { history.delete(id); count++ }
+        if (ids.contains(session)) open()
+        return count
+    }
+
     fun send(question: String?, target: Long? = null, attachment: String = "", search: Boolean = false): Boolean {
         val key = ChatPreferences.key ?: return false
         if (active != null) return false
+        val model = ChatPreferences.model(key.provider)
+        val thinking = ChatPreferences.thinking
+        if (question != null && ChatContext.estimate(question) > ChatContext.inputLimit(model, thinking, attachment.isNotEmpty())) {
+            state.value = state.value!!.copy(notice = "这条消息超过所选模型的输入预算，请缩短后再发送")
+            return false
+        }
         val previous = state.value!!.turns
         val turns = if (question != null) previous + history.ask(session, question, attachment, search) else previous
         if (turns.isEmpty()) return false
         SecureStore.putString("chat_session", session)
-        val model = ChatPreferences.model(key.provider)
-        val thinking = ChatPreferences.thinking
         val index = if (target == null) turns.lastIndex else turns.indexOfFirst { it.id == target }
         if (index < 0) return false
         val context = turns.take(index) + turns[index].copy(search = search)
         val targetId = context.last().id
         val request = ChatRequest(getApplication<Application>().contentResolver)
+        val savedMemory = history.memory(session)
+        val requestSession = session
         active = request
         state.value = Conversation(turns, busy = true, target = targetId)
         AppExecutors.io.execute {
             val result = runCatching {
-                request.stream(key, model, thinking, context, history::uploaded) { partial ->
+                request.stream(key, model, thinking, context, { id, file ->
+                    AppExecutors.main { if (active === request) history.uploaded(id, file) }
+                }, savedMemory, { memory ->
+                    AppExecutors.main { if (active === request) history.saveMemory(requestSession, memory) }
+                }) { partial ->
                     AppExecutors.main {
                         if (active === request) state.value = Conversation(turns, true, targetId, partial.text,partial.status,partial.reasoning)
                     }
@@ -71,8 +90,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 if (active !== request) return@main
                 active = null
                 result.onSuccess { answer ->
-                    history.answer(targetId, answer.text, answer.reasoning, answer.sources)
-                    reload()
+                    history.answer(targetId, answer.text, answer.reasoning, answer.sources, answer.usage ?: com.itcast.ds_balance_viewer.data.TokenUsage(), answer.outcome)
+                    state.value = Conversation(history.turns(session), notice = answer.status)
                 }.onFailure {
                     val message = when (it) {
                         is SocketTimeoutException -> "连接超时，请重试"
@@ -89,13 +108,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun stop() {
         val request = active ?: return
-        active = null
-        AppExecutors.io.execute { request.cancel() }
-        state.value = Conversation(history.turns(session), notice = "已停止生成")
+        request.cancel { disconnect -> AppExecutors.io.execute(disconnect) }
     }
 
     override fun onCleared() {
         stop()
+        active = null
         history.close()
     }
 }

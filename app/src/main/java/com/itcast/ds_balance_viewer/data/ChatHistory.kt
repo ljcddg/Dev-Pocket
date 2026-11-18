@@ -4,20 +4,29 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import com.itcast.ds_balance_viewer.net.ChatMemory
+
+/** 单次回答的真实 token 用量，来自 API 流式响应的 usage 字段；旧数据全为 0。 */
+data class TokenUsage(
+    val prompt: Int = 0, val completion: Int = 0, val reasoning: Int = 0, val total: Int = 0
+) {
+    val hasData get() = prompt > 0 || completion > 0
+}
 
 data class ChatTurn(
     val id: Long, val question: String, val answer: String, val versions: List<String> = emptyList(),
     val selected: Int = 0, val vote: Int = 0, val attachment: String = "", val search: Boolean = false,
-    val reasoning: String = "", val sources: List<ChatSource> = emptyList()
+    val reasoning: String = "", val sources: List<ChatSource> = emptyList(),
+    val usage: TokenUsage = TokenUsage(), val outcome: String = ""
 )
 data class ChatSession(val id: String, val title: String, val updated: Long, val pinned: Boolean)
 
 /** 每个问题独立保存，网络中断后可以重新回答最后一题。 */
-class ChatHistory(context: Context, name: String = "conversations.db") : SQLiteOpenHelper(context, name, null, 4) {
+class ChatHistory(context: Context, name: String = "conversations.db") : SQLiteOpenHelper(context, name, null, 6) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE turns (id INTEGER PRIMARY KEY, session TEXT NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '')")
         db.execSQL("CREATE INDEX session_turns ON turns(session, id)")
-        onUpgrade(db, 1, 4)
+        onUpgrade(db, 1, 6)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -32,6 +41,16 @@ class ChatHistory(context: Context, name: String = "conversations.db") : SQLiteO
         }
         if (oldVersion < 3) db.execSQL("ALTER TABLE replies ADD COLUMN reasoning TEXT NOT NULL DEFAULT ''")
         if (oldVersion < 4) db.execSQL("ALTER TABLE replies ADD COLUMN sources TEXT NOT NULL DEFAULT '[]'")
+        if (oldVersion < 6) {
+            db.execSQL("ALTER TABLE replies ADD COLUMN outcome TEXT NOT NULL DEFAULT ''")
+            db.execSQL("CREATE TABLE chat_memory(session TEXT PRIMARY KEY, through_id INTEGER NOT NULL, fingerprint TEXT NOT NULL, body TEXT NOT NULL)")
+        }
+        if (oldVersion < 5) {
+            db.execSQL("ALTER TABLE replies ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE replies ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE replies ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE replies ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0")
+        }
     }
 
     fun sessions(query: String = ""): List<ChatSession> = readableDatabase.rawQuery(
@@ -52,12 +71,16 @@ class ChatHistory(context: Context, name: String = "conversations.db") : SQLiteO
                 var vote = 0
                 var reasoning = ""
                 var sources = emptyList<ChatSource>()
-                readableDatabase.rawQuery("SELECT body,vote,reasoning,sources FROM replies WHERE turn=? ORDER BY version", arrayOf(id.toString())).use { rows ->
+                var usage = TokenUsage()
+                var outcome = ""
+                readableDatabase.rawQuery("SELECT body,vote,reasoning,sources,prompt_tokens,completion_tokens,reasoning_tokens,total_tokens,outcome FROM replies WHERE turn=? ORDER BY version", arrayOf(id.toString())).use { rows ->
                     while (rows.moveToNext()) {
                         if (versions.size == cursor.getInt(3)) {
                             vote = rows.getInt(1)
                             reasoning = rows.getString(2)
                             sources = ChatSource.decode(rows.getString(3))
+                            usage = TokenUsage(rows.getInt(4), rows.getInt(5), rows.getInt(6), rows.getInt(7))
+                            outcome = rows.getString(8)
                         }
                         versions.add(rows.getString(0))
                     }
@@ -67,7 +90,7 @@ class ChatHistory(context: Context, name: String = "conversations.db") : SQLiteO
                     ChatSource.splitLegacyAnswer(storedAnswer)
                 } else storedAnswer to sources
                 add(ChatTurn(id, cursor.getString(1), answer, versions, cursor.getInt(3), vote,
-                    cursor.getString(4), cursor.getInt(5) != 0, reasoning, displayedSources))
+                    cursor.getString(4), cursor.getInt(5) != 0, reasoning, displayedSources, usage, outcome))
             }
         }
     }
@@ -83,17 +106,27 @@ class ChatHistory(context: Context, name: String = "conversations.db") : SQLiteO
         return ChatTurn(id, question, "", attachment = attachment, search = search)
     }
 
-    fun answer(id: Long, text: String, reasoning: String = "", sources: List<ChatSource> = emptyList()) {
+    fun answer(id: Long, text: String, reasoning: String = "", sources: List<ChatSource> = emptyList(), usage: TokenUsage = TokenUsage(), outcome: String = "") {
         val db = writableDatabase
         db.beginTransaction()
         try {
             db.execSQL(
-                "INSERT INTO replies(turn,version,body,reasoning,sources) SELECT ?,count(*),?,?,? FROM replies WHERE turn=?",
-                arrayOf<Any>(id, text, reasoning, ChatSource.encode(sources), id)
+                "INSERT INTO replies(turn,version,body,reasoning,sources,prompt_tokens,completion_tokens,reasoning_tokens,total_tokens,outcome) SELECT ?,count(*),?,?,?,?,?,?,?,? FROM replies WHERE turn=?",
+                arrayOf<Any>(id, text, reasoning, ChatSource.encode(sources),
+                    usage.prompt, usage.completion, usage.reasoning, usage.total, outcome, id)
             )
             db.execSQL("UPDATE turns SET answer=?, selected=(SELECT max(version) FROM replies WHERE turn=?) WHERE id=?", arrayOf(text,id,id))
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
+    }
+
+    fun memory(session: String): ChatMemory? = readableDatabase.rawQuery(
+        "SELECT through_id,fingerprint,body FROM chat_memory WHERE session=?", arrayOf(session)
+    ).use { if (it.moveToFirst()) ChatMemory(it.getLong(0), it.getString(1), it.getString(2)) else null }
+
+    fun saveMemory(session: String, memory: ChatMemory) {
+        writableDatabase.execSQL("INSERT OR REPLACE INTO chat_memory VALUES(?,?,?,?)",
+            arrayOf<Any>(session, memory.through, memory.fingerprint, memory.text))
     }
 
     fun select(turn: ChatTurn, index: Int) {
@@ -118,6 +151,7 @@ class ChatHistory(context: Context, name: String = "conversations.db") : SQLiteO
         try {
             db.execSQL("DELETE FROM replies WHERE turn IN (SELECT id FROM turns WHERE session=?)", arrayOf(session))
             db.delete("turns", "session = ?", arrayOf(session))
+            db.delete("chat_memory", "session = ?", arrayOf(session))
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
     }

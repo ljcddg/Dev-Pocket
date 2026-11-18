@@ -3,21 +3,24 @@ package com.itcast.ds_balance_viewer.data
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class ChatSource(val title: String, val url: String) {
+data class ChatSource(val title: String, val url: String, val evidence: String = "", val date: String = "") {
     companion object {
         private const val legacyHeading = "\n\n**本次检索来源**\n\n"
         private val legacyLink = Regex("""- \[\d+ · (.+)]\((https?://.+)\)""")
 
         internal fun encode(sources: List<ChatSource>): String =
             JSONArray().apply {
-                sources.forEach { put(JSONObject().put("title", it.title).put("url", it.url)) }
+                sources.forEach {
+                    put(JSONObject().put("title", it.title).put("url", it.url)
+                        .put("evidence", it.evidence).put("date", it.date))
+                }
             }.toString()
 
         internal fun decode(value: String): List<ChatSource> {
             val array = runCatching { JSONArray(value) }.getOrNull() ?: return emptyList()
             return (0 until array.length()).mapNotNull { index ->
                 val row = array.optJSONObject(index) ?: return@mapNotNull null
-                ChatSource(row.optString("title"), row.optString("url"))
+                ChatSource(row.optString("title"), row.optString("url"), row.optString("evidence"), row.optString("date"))
             }
         }
 

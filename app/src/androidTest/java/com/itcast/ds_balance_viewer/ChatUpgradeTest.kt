@@ -95,7 +95,7 @@ class ChatUpgradeTest {
                 assertEquals("file-api-test",JSONObject(data).getString("remote"))
             }) {}
             assertTrue(result.text.contains("**答复**"))
-            assertEquals(listOf(ChatSource("测试来源", "https://example.org/report")), result.sources)
+            assertEquals(listOf(ChatSource("测试来源", "https://example.org/report", "最新公告摘要")), result.sources)
             assertEquals("分析资料",result.reasoning)
             assertEquals(listOf("https://api.deepseek.com/v1/tools/search","https://api.deepseek.com/files","https://api.deepseek.com/chat/completions"),endpoints)
             assertTrue(sent[1].toString("UTF-8").contains("测试附件正文"))

@@ -68,7 +68,21 @@
         <EditText android:id="@+id/historySearch" android:layout_width="match_parent" android:layout_height="48dp"
             android:drawableStart="@drawable/ic_history_search" android:drawablePadding="8dp" android:singleLine="true" android:hint="搜索对话内容…" android:imeOptions="actionSearch" android:inputType="text"
             android:layout_marginTop="16dp" android:paddingHorizontal="16dp" android:background="@drawable/chat_bubble" />
-        <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">
+        <LinearLayout android:id="@+id/batchBar" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:visibility="gone" android:gravity="center_vertical" android:orientation="horizontal" android:paddingTop="8dp">
+            <Button android:id="@+id/batchAll" style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:minWidth="0dp" android:paddingHorizontal="6dp" android:text="全选" android:textSize="13sp" />
+            <Button android:id="@+id/batchNone" style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:minWidth="0dp" android:paddingHorizontal="6dp" android:text="取消" android:textSize="13sp" />
+            <TextView android:id="@+id/batchCount" android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:gravity="center" android:textSize="13sp" />
+            <Button android:id="@+id/batchExit" style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:minWidth="0dp" android:paddingHorizontal="6dp" android:text="退出" android:textSize="13sp" />
+        </LinearLayout>
+        <Button android:id="@+id/batchDelete" style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"
+            android:textColor="?android:attr/textColorPrimary" android:text="删除选中" />
+        <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
             <LinearLayout android:id="@+id/historyRows" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"/>
         </ScrollView>
     </LinearLayout>
