@@ -170,14 +170,23 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             }
         })
         b.historySearch.doAfterTextChanged { refreshHistory() }
+        val windowPosition = IntArray(2)
         ViewCompat.setOnApplyWindowInsetsListener(view) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-            view.setPadding(bars.left, 0, bars.right, (keyboard - bars.bottom).coerceAtLeast(0))
+            // DrawerLayout 按子视图的边距测量和摆放页面。键盘留白应交给实际排列输入框的布局。
+            view.getLocationInWindow(windowPosition)
+            val pageBottom = windowPosition[1] + view.height
+            val keyboardTop = view.rootView.height - keyboard
+            val overlap = (pageBottom - keyboardTop).coerceIn(0, keyboard)
+            b.chatPage.setPadding(bars.left, 0, bars.right, overlap)
             b.header.setPadding(b.header.paddingLeft, bars.top, b.header.paddingRight, 0)
             if (b.header.layoutParams.height != toolbarHeight + bars.top) b.header.layoutParams = b.header.layoutParams.apply { height = toolbarHeight + bars.top }
-            b.historyPanel.setPadding(dp(16),bars.top,dp(16),0)
+            b.historyPanel.setPadding(dp(16) + bars.left, bars.top, dp(16), overlap)
             insets
+        }
+        view.addOnLayoutChangeListener { v, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (top != oldTop || bottom != oldBottom) ViewCompat.requestApplyInsets(v)
         }
         b.setup.setOnClickListener { settings() }
         b.settings.setOnClickListener { settings() }
