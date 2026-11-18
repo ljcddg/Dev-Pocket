@@ -1,6 +1,7 @@
 package com.itcast.ds_balance_viewer.ui
 
 import android.content.Intent
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.net.Uri
@@ -14,6 +15,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import androidx.core.widget.doAfterTextChanged
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.card.MaterialCardView
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
@@ -37,6 +39,7 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import com.itcast.ds_balance_viewer.R
 import com.itcast.ds_balance_viewer.data.ChatPreferences
+import com.itcast.ds_balance_viewer.data.ChatSource
 import com.itcast.ds_balance_viewer.data.ChatTurn
 import com.itcast.ds_balance_viewer.data.KeyRepository
 import com.itcast.ds_balance_viewer.databinding.FragmentChatBinding
@@ -60,14 +63,26 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             .usePlugin(StrikethroughPlugin.create())
             .usePlugin(object : io.noties.markwon.AbstractMarkwonPlugin() {
                 override fun configureConfiguration(builder: io.noties.markwon.MarkwonConfiguration.Builder) {
-                    builder.linkResolver { view, link ->
-                        val uri = Uri.parse(link)
-                        if (uri.scheme in listOf("https","http")) runCatching { view.context.startActivity(Intent(Intent.ACTION_VIEW,uri)) }
-                    }
+                    builder.linkResolver { _, link -> openWebLink(link) }
                 }
             }).build()
     }
     private fun toast(message: String) { context?.let { Toast.makeText(it,message,Toast.LENGTH_SHORT).show() } }
+
+    private fun openWebLink(link: String) {
+        val uri = Uri.parse(link.trim()).normalizeScheme()
+        if (uri.scheme !in listOf("https", "http") || uri.host.isNullOrBlank()) {
+            toast("来源链接无效")
+            return
+        }
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+        } catch (_: ActivityNotFoundException) {
+            toast("设备上没有可打开链接的浏览器")
+        } catch (_: SecurityException) {
+            toast("系统限制了此链接的打开")
+        }
+    }
     private val document = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null && uri.scheme == "content" && uri.authority != requireContext().packageName + ".fileprovider") {
             runCatching {
@@ -316,6 +331,99 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         }
     }
 
+    private fun showSources(sources: List<ChatSource>) {
+        if (sources.isEmpty()) return
+        val b = binding ?: return
+        val ctx = b.messages.context
+        val muted = b.notice.currentTextColor
+        val primaryText = b.input.currentTextColor
+        val card = MaterialCardView(ctx).apply {
+            radius = dp(16).toFloat()
+            cardElevation = 0f
+            strokeWidth = dp(1)
+            strokeColor = ctx.getColor(R.color.ds_divider)
+            setCardBackgroundColor(ctx.getColor(R.color.ds_card))
+        }
+        val content = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        card.addView(content)
+        val chevron = ImageView(ctx).apply {
+            setImageResource(R.drawable.chat_next)
+            setColorFilter(muted)
+            rotation = 90f
+        }
+        val header = LinearLayout(ctx).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), 0, dp(14), 0)
+            setBackgroundResource(android.R.drawable.list_selector_background)
+            isFocusable = true
+            addView(ImageView(ctx).apply {
+                setImageResource(R.drawable.ic_mode_search)
+                setColorFilter(ctx.getColor(R.color.mode_ink))
+            }, dp(18), dp(18))
+            addView(TextView(ctx).apply {
+                text = "检索来源 · ${sources.size}"
+                textSize = 14f
+                setTextColor(primaryText)
+                setPaddingRelative(dp(8), 0, dp(8), 0)
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(chevron, dp(18), dp(18))
+        }
+        content.addView(header, -1, dp(48))
+        val rows = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            isVisible = false
+        }
+        content.addView(rows, -1, -2)
+        header.setOnClickListener {
+            rows.isVisible = !rows.isVisible
+            chevron.rotation = if (rows.isVisible) 270f else 90f
+        }
+        sources.forEachIndexed { index, source ->
+            val host = Uri.parse(source.url).host.orEmpty().removePrefix("www.")
+            rows.addView(View(ctx).apply { setBackgroundColor(ctx.getColor(R.color.ds_divider)) }, -1, dp(1))
+            rows.addView(LinearLayout(ctx).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dp(56)
+                setPadding(dp(14), dp(8), dp(14), dp(8))
+                setBackgroundResource(android.R.drawable.list_selector_background)
+                isFocusable = true
+                setOnClickListener { openWebLink(source.url) }
+                addView(TextView(ctx).apply {
+                    text = (index + 1).toString()
+                    textSize = 12f
+                    setTextColor(ctx.getColor(R.color.mode_ink))
+                    setBackgroundResource(R.drawable.chat_bubble)
+                    gravity = Gravity.CENTER
+                }, dp(24), dp(24))
+                addView(LinearLayout(ctx).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPaddingRelative(dp(10), 0, dp(8), 0)
+                    addView(TextView(ctx).apply {
+                        text = source.title.ifBlank { host }
+                        textSize = 14f
+                        setTextColor(primaryText)
+                        maxLines = 2
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                    })
+                    addView(TextView(ctx).apply {
+                        text = host
+                        textSize = 12f
+                        setTextColor(muted)
+                        maxLines = 1
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                    })
+                }, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(ImageView(ctx).apply {
+                    setImageResource(R.drawable.ic_browser)
+                    setColorFilter(muted)
+                }, dp(16), dp(16))
+            }, -1, -2)
+        }
+        b.messages.addView(card, LinearLayout.LayoutParams(-1, -2).apply {
+            bottomMargin = dp(8)
+        })
+    }
+
     private fun actions(turn: ChatTurn) {
         val b = binding ?: return
         val ctx = requireContext()
@@ -337,15 +445,22 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             action("下一版本",R.drawable.chat_next,turn.selected+1 < turn.versions.size) { chat.choose(turn,turn.selected+1) }
         }
         if (turn.answer.isNotEmpty()) {
+            val exported = buildString {
+                append(turn.answer)
+                if (turn.sources.isNotEmpty()) {
+                    append("\n\n检索来源\n")
+                    turn.sources.forEach { appendLine("${it.title}  ${it.url}") }
+                }
+            }.trimEnd()
             action("复制回答",R.drawable.chat_copy) {
-                ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("回答",turn.answer))
+                ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("回答",exported))
                 toast("已复制回答")
             }
             action("有帮助",R.drawable.chat_like,selected = turn.vote == 1) { chat.vote(turn,1) }
             action("没帮助",R.drawable.chat_dislike,selected = turn.vote == -1) { chat.vote(turn,-1) }
             action("朗读或停止",R.drawable.chat_speak) { readAloud(markdown.toMarkdown(turn.answer).toString()) }
             action("分享回答",R.drawable.chat_share) {
-                startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,turn.answer),"分享回答"))
+                startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,exported),"分享回答"))
             }
         }
         action("重新生成",R.drawable.ic_refresh) { if (!chat.send(null,turn.id,search = b.search.isChecked && searchSupported())) settings() }
@@ -400,6 +515,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 if (state.busy && state.target == turn.id) lastReply = reply
                 else {
                     markdown.setMarkdown(reply,turn.answer.ifEmpty { "尚未完成回复" })
+                    showSources(turn.sources)
                     if (!state.busy) actions(turn)
                 }
             }

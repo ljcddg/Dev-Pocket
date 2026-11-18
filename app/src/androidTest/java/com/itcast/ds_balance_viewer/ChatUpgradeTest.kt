@@ -1,5 +1,7 @@
 package com.itcast.ds_balance_viewer
 
+import android.content.Intent
+import android.content.IntentFilter
 import androidx.test.core.app.ActivityScenario
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
@@ -17,6 +19,7 @@ import java.net.URL
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import org.hamcrest.Matchers.not
 
 class ChatUpgradeTest {
     private val ctx = InstrumentationRegistry.getInstrumentation().targetContext
@@ -92,13 +95,58 @@ class ChatUpgradeTest {
                 assertEquals("file-api-test",JSONObject(data).getString("remote"))
             }) {}
             assertTrue(result.text.contains("**答复**"))
-            assertTrue(result.text.contains("https://example.org/report"))
+            assertEquals(listOf(ChatSource("测试来源", "https://example.org/report")), result.sources)
             assertEquals("分析资料",result.reasoning)
             assertEquals(listOf("https://api.deepseek.com/v1/tools/search","https://api.deepseek.com/files","https://api.deepseek.com/chat/completions"),endpoints)
             assertTrue(sent[1].toString("UTF-8").contains("测试附件正文"))
             val json = JSONObject(sent.last().toString("UTF-8"))
             assertTrue(json.toString().contains("最新公告摘要"))
+            assertTrue(json.getJSONArray("messages").getJSONObject(0).getString("content").contains("用户设备的本地时间"))
             assertEquals("file-api-test",json.getJSONArray("messages").getJSONObject(1).getJSONArray("content").getJSONObject(1).getString("file_id"))
         } finally { file.delete() }
+    }
+
+    @Test fun calendarAndRecallUseLocalDataWithSearchEnabled() {
+        val request = ChatRequest(ctx.contentResolver) { endpoint ->
+            error("不应联网请求 $endpoint")
+        }
+        val key = ApiKey(alias = "测试", secret = "fixture")
+        val calendar = ChatTurn(1, "今天周几", "", search = true)
+        val result = request.stream(key, "deepseek-flash", false, listOf(calendar), { _, _ -> }) {}
+        assertTrue(result.text.matches(Regex("""今天是 \d+ 年 \d+ 月 \d+ 日，星期[一二三四五六日]。""")))
+        val recall = ChatTurn(2, "我刚才问你什么了", "", search = true)
+        val recalled = request.stream(key, "deepseek-flash", false, listOf(calendar, recall), { _, _ -> }) {}
+        assertEquals("你的上一条消息是「今天周几」。", recalled.text)
+    }
+
+    @Test fun legacySourceExpandsAndOpensBrowser() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val filter = IntentFilter(Intent.ACTION_VIEW).apply {
+            addCategory(Intent.CATEGORY_BROWSABLE)
+            addDataScheme("https")
+            addDataAuthority("example.org", null)
+        }
+        val browser = instrumentation.addMonitor(filter, null, true)
+        val history = ChatHistory(ctx)
+        val session = java.util.UUID.randomUUID().toString()
+        val previous = SecureStore.getString("chat_session")
+        try {
+            val turn = history.ask(session, "测试来源")
+            history.answer(turn.id, "正文\n\n**本次检索来源**\n\n- [1 · 测试报告](https://example.org/report)")
+            SecureStore.putString("chat_session", session)
+            ActivityScenario.launch(MainActivity::class.java).use {
+                onView(withText("正文")).check(matches(isDisplayed()))
+                onView(withText("测试报告")).check(matches(not(isDisplayed())))
+                onView(withText("检索来源 · 1")).perform(click())
+                onView(withText("example.org")).check(matches(isDisplayed()))
+                onView(withText("测试报告")).perform(click())
+                assertEquals(1, browser.hits)
+            }
+        } finally {
+            instrumentation.removeMonitor(browser)
+            if (previous == null) SecureStore.remove("chat_session") else SecureStore.putString("chat_session", previous)
+            history.delete(session)
+            history.close()
+        }
     }
 }

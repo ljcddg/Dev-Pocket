@@ -5,15 +5,19 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-data class ChatTurn(val id: Long, val question: String, val answer: String, val versions: List<String> = emptyList(), val selected: Int = 0, val vote: Int = 0, val attachment: String = "", val search: Boolean = false, val reasoning: String = "")
+data class ChatTurn(
+    val id: Long, val question: String, val answer: String, val versions: List<String> = emptyList(),
+    val selected: Int = 0, val vote: Int = 0, val attachment: String = "", val search: Boolean = false,
+    val reasoning: String = "", val sources: List<ChatSource> = emptyList()
+)
 data class ChatSession(val id: String, val title: String, val updated: Long, val pinned: Boolean)
 
 /** 每个问题独立保存，网络中断后可以重新回答最后一题。 */
-class ChatHistory(context: Context, name: String = "conversations.db") : SQLiteOpenHelper(context, name, null, 3) {
+class ChatHistory(context: Context, name: String = "conversations.db") : SQLiteOpenHelper(context, name, null, 4) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE turns (id INTEGER PRIMARY KEY, session TEXT NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '')")
         db.execSQL("CREATE INDEX session_turns ON turns(session, id)")
-        onUpgrade(db, 1, 3)
+        onUpgrade(db, 1, 4)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -26,7 +30,8 @@ class ChatHistory(context: Context, name: String = "conversations.db") : SQLiteO
             db.execSQL("CREATE TABLE replies(turn INTEGER NOT NULL, version INTEGER NOT NULL, body TEXT NOT NULL, vote INTEGER DEFAULT 0, PRIMARY KEY(turn,version))")
             db.execSQL("INSERT INTO replies(turn,version,body) SELECT id,0,answer FROM turns WHERE answer <> ''")
         }
-        db.execSQL("ALTER TABLE replies ADD COLUMN reasoning TEXT NOT NULL DEFAULT ''")
+        if (oldVersion < 3) db.execSQL("ALTER TABLE replies ADD COLUMN reasoning TEXT NOT NULL DEFAULT ''")
+        if (oldVersion < 4) db.execSQL("ALTER TABLE replies ADD COLUMN sources TEXT NOT NULL DEFAULT '[]'")
     }
 
     fun sessions(query: String = ""): List<ChatSession> = readableDatabase.rawQuery(
@@ -46,16 +51,23 @@ class ChatHistory(context: Context, name: String = "conversations.db") : SQLiteO
                 val versions = mutableListOf<String>()
                 var vote = 0
                 var reasoning = ""
-                readableDatabase.rawQuery("SELECT body,vote,reasoning FROM replies WHERE turn=? ORDER BY version", arrayOf(id.toString())).use { rows ->
+                var sources = emptyList<ChatSource>()
+                readableDatabase.rawQuery("SELECT body,vote,reasoning,sources FROM replies WHERE turn=? ORDER BY version", arrayOf(id.toString())).use { rows ->
                     while (rows.moveToNext()) {
                         if (versions.size == cursor.getInt(3)) {
                             vote = rows.getInt(1)
                             reasoning = rows.getString(2)
+                            sources = ChatSource.decode(rows.getString(3))
                         }
                         versions.add(rows.getString(0))
                     }
                 }
-                add(ChatTurn(id, cursor.getString(1), cursor.getString(2), versions, cursor.getInt(3), vote, cursor.getString(4), cursor.getInt(5) != 0, reasoning))
+                val storedAnswer = cursor.getString(2)
+                val (answer, displayedSources) = if (sources.isEmpty()) {
+                    ChatSource.splitLegacyAnswer(storedAnswer)
+                } else storedAnswer to sources
+                add(ChatTurn(id, cursor.getString(1), answer, versions, cursor.getInt(3), vote,
+                    cursor.getString(4), cursor.getInt(5) != 0, reasoning, displayedSources))
             }
         }
     }
@@ -71,11 +83,14 @@ class ChatHistory(context: Context, name: String = "conversations.db") : SQLiteO
         return ChatTurn(id, question, "", attachment = attachment, search = search)
     }
 
-    fun answer(id: Long, text: String, reasoning: String = "") {
+    fun answer(id: Long, text: String, reasoning: String = "", sources: List<ChatSource> = emptyList()) {
         val db = writableDatabase
         db.beginTransaction()
         try {
-            db.execSQL("INSERT INTO replies(turn,version,body,reasoning) SELECT ?,count(*),?,? FROM replies WHERE turn=?", arrayOf<Any>(id,text,reasoning,id))
+            db.execSQL(
+                "INSERT INTO replies(turn,version,body,reasoning,sources) SELECT ?,count(*),?,?,? FROM replies WHERE turn=?",
+                arrayOf<Any>(id, text, reasoning, ChatSource.encode(sources), id)
+            )
             db.execSQL("UPDATE turns SET answer=?, selected=(SELECT max(version) FROM replies WHERE turn=?) WHERE id=?", arrayOf(text,id,id))
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }

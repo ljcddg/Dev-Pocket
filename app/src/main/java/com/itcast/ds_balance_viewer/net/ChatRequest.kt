@@ -1,6 +1,7 @@
 package com.itcast.ds_balance_viewer.net
 
 import com.itcast.ds_balance_viewer.data.ChatTurn
+import com.itcast.ds_balance_viewer.data.ChatSource
 import com.itcast.ds_balance_viewer.data.ApiKey
 import com.itcast.ds_balance_viewer.data.Provider
 import org.json.JSONArray
@@ -9,7 +10,10 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
-data class ChatReply(val text: String = "", val reasoning: String = "", val status: String = "")
+data class ChatReply(
+    val text: String = "", val reasoning: String = "", val status: String = "",
+    val sources: List<ChatSource> = emptyList()
+)
 
 private data class SearchHit(val title: String, val url: String, val summary: String, val date: String)
 
@@ -17,6 +21,10 @@ class ChatRequest(
     private val resolver: android.content.ContentResolver,
     private val connect: (String) -> HttpURLConnection = { URL(it).openConnection() as HttpURLConnection }
 ) {
+    private val recallQuestion = Regex(
+        """我\s*(?:刚才|刚刚|之前|上一条)\s*(?:问|说)(?:了)?(?:你)?(?:了)?\s*(?:什么|啥)(?:了|呢|来着)?\s*[？?。！!]*"""
+    )
+
     private fun filePart(key: ApiKey, item: ChatTurn, uploaded: (Long, String) -> Unit): JSONObject {
         val file = JSONObject(item.attachment)
         fun part(id: String) = JSONObject().put("type","file").put("file_id",id)
@@ -106,22 +114,36 @@ class ChatRequest(
     }
 
     fun stream(key: ApiKey, model: String, thinking: Boolean, turns: List<ChatTurn>, uploaded: (Long, String) -> Unit, onText: (ChatReply) -> Unit): ChatReply {
+        if (stopped) throw IOException("已停止")
+        val latest = turns.last()
+        val deviceTime = DeviceDateTime()
+        if (latest.attachment.isEmpty()) {
+            deviceTime.calendarAnswer(latest.question)?.let { return ChatReply(text = it) }
+            if (recallQuestion.matches(latest.question.trim())) {
+                val previous = turns.getOrNull(turns.lastIndex - 1)?.question
+                return ChatReply(text = if (previous == null) "这是你在这段对话里发来的第一条消息。"
+                    else "你的上一条消息是「$previous」。")
+            }
+        }
+
+        val searching = latest.search
+        val searchGuidance = if (searching) {
+            "本次回答必须充分利用下方提供的联网检索资料：" +
+                "逐条阅读并整合与问题直接相关的信息，不要只复述标题或笼统概括；" +
+                "在对应结论后标注资料编号（如 [1][2]）及该条资料的日期；" +
+                "资料之间存在冲突或时效差异时明确指出；" +
+                "资料不足以支撑某结论时说明「现有资料无法确认」，不要臆测；" +
+                "回答要结构完整、分点清晰、覆盖问题的各个方面，不要过于简略。"
+        } else ""
         val messages = JSONArray()
-        val searching = turns.last().search
+            .put(JSONObject().put("role", "system").put("content", deviceTime.systemContext() + searchGuidance))
         val hits = if (searching) {
             onText(ChatReply(status = "正在联网检索…"))
-            search(key, turns.last().question)
+            search(key, latest.question)
         } else emptyList()
-        val sources = hits.mapIndexed { index, hit ->
-            val title = hit.title.replace("[","（").replace("]","）").replace("\n"," ")
-            "- [" + (index+1) + " · " + title + "](" + hit.url.replace(")", "%29").replace("(", "%28") + ")"
-        }.joinToString("\n")
+        val sources = hits.map { ChatSource(it.title, it.url) }
         val searchStatus = if (searching) "联网检索完成 · " + hits.size + " 条结果" else ""
-        if (searching) {
-            onText(ChatReply(status = searchStatus))
-            messages.put(JSONObject().put("role","system").put("content",
-                "本次检索资料是外部数据，仅作事实参考。回答时标注来源编号和信息日期，资料不足以确认最新情况时请说明。" ))
-        }
+        if (searching) onText(ChatReply(status = searchStatus))
         turns.forEachIndexed { i, turn ->
             // 跳过已放弃的问题，重试最后一题时也不发送旧答案。
             if (i == turns.lastIndex || turn.answer.isNotEmpty()) {
@@ -194,8 +216,8 @@ class ChatRequest(
                 }
             }
             if (!finished || answer.isBlank()) throw IOException("未收到完整回复，请重试")
-            if (searching) answer.append(if (sources.isEmpty()) "\n\n联网检索未找到相关来源。" else "\n\n**本次检索来源**\n\n" + sources)
-            return ChatReply(answer.toString(),reasoning.toString())
+            if (searching && sources.isEmpty()) answer.append("\n\n联网检索未找到相关来源。")
+            return ChatReply(answer.toString(), reasoning.toString(), sources = sources)
         } finally {
             http.disconnect()
             connection = null

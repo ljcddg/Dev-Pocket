@@ -71,7 +71,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 if (active !== request) return@main
                 active = null
                 result.onSuccess { answer ->
-                    history.answer(targetId, answer.text,answer.reasoning)
+                    history.answer(targetId, answer.text, answer.reasoning, answer.sources)
                     reload()
                 }.onFailure {
                     val message = when (it) {
