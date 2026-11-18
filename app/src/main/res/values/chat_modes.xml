@@ -1,0 +1,20 @@
+<resources>
+    <style name="ChatModeChip" parent="Widget.MaterialComponents.Chip.Filter">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginEnd">4dp</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">@color/mode_ink_states</item>
+        <item name="android:checkable">true</item>
+        <item name="chipIconVisible">true</item>
+        <item name="checkedIconVisible">false</item>
+        <item name="chipCornerRadius">16dp</item>
+        <item name="chipMinHeight">32dp</item>
+        <item name="chipIconSize">16dp</item>
+        <item name="chipIconTint">@color/mode_ink_states</item>
+        <item name="chipBackgroundColor">@color/mode_fill_states</item>
+        <item name="chipStrokeColor">@color/mode_border_states</item>
+        <item name="chipStrokeWidth">1dp</item>
+        <item name="ensureMinTouchTargetSize">true</item>
+    </style>
+</resources>

@@ -29,4 +29,7 @@
     <!-- 兼容模板默认值 -->
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="mode_fill">#ECF1FF</color>
+    <color name="mode_border">#D0DDF7</color>
+    <color name="mode_ink">#3B61C9</color>
 </resources>

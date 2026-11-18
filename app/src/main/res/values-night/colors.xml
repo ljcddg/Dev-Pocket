@@ -4,4 +4,7 @@
     <color name="ds_window_dark">#0F1115</color>
     <color name="ds_card">#1B1E26</color>
     <color name="ds_divider">#2498A2B3</color>
+    <color name="mode_fill">#273758</color>
+    <color name="mode_border">#415982</color>
+    <color name="mode_ink">#A9BEFF</color>
 </resources>

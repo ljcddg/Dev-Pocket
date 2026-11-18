@@ -15,7 +15,7 @@ import java.util.UUID
 
 data class Conversation(
     val turns: List<ChatTurn>, val busy: Boolean = false,
-    val target: Long = -1, val partial: String = "", val notice: String = ""
+    val target: Long = -1, val partial: String = "", val notice: String = "", val reasoning: String = ""
 )
 
 class ChatViewModel(app: Application) : AndroidViewModel(app) {
@@ -54,7 +54,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val thinking = ChatPreferences.thinking
         val index = if (target == null) turns.lastIndex else turns.indexOfFirst { it.id == target }
         if (index < 0) return false
-        val context = turns.take(index + 1)
+        val context = turns.take(index) + turns[index].copy(search = search)
         val targetId = context.last().id
         val request = ChatRequest(getApplication<Application>().contentResolver)
         active = request
@@ -63,7 +63,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             val result = runCatching {
                 request.stream(key, model, thinking, context, history::uploaded) { partial ->
                     AppExecutors.main {
-                        if (active === request) state.value = Conversation(turns, true, targetId, partial)
+                        if (active === request) state.value = Conversation(turns, true, targetId, partial.text,partial.status,partial.reasoning)
                     }
                 }
             }
@@ -71,7 +71,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 if (active !== request) return@main
                 active = null
                 result.onSuccess { answer ->
-                    history.answer(targetId, answer)
+                    history.answer(targetId, answer.text,answer.reasoning)
                     reload()
                 }.onFailure {
                     val message = when (it) {

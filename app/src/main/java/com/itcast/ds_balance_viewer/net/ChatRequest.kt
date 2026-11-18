@@ -9,6 +9,10 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
+data class ChatReply(val text: String = "", val reasoning: String = "", val status: String = "")
+
+private data class SearchHit(val title: String, val url: String, val summary: String, val date: String)
+
 class ChatRequest(
     private val resolver: android.content.ContentResolver,
     private val connect: (String) -> HttpURLConnection = { URL(it).openConnection() as HttpURLConnection }
@@ -69,14 +73,65 @@ class ChatRequest(
         connection?.disconnect()
     }
 
-    fun stream(key: ApiKey, model: String, thinking: Boolean, turns: List<ChatTurn>, uploaded: (Long, String) -> Unit, onText: (String) -> Unit): String {
+    private fun search(key: ApiKey, question: String): List<SearchHit> {
+        if (key.provider != Provider.DEEPSEEK) throw IOException("智能搜索需要 DeepSeek 密钥")
+        val http = connect("https://api.deepseek.com/v1/tools/search")
+        connection = http
+        try {
+            if (stopped) throw IOException("已停止")
+            http.requestMethod = "POST"
+            http.instanceFollowRedirects = false
+            http.doOutput = true
+            http.connectTimeout = 15000
+            http.readTimeout = 60000
+            http.setRequestProperty("Authorization", "Bearer " + key.secret)
+            http.setRequestProperty("Content-Type", "application/json")
+            val length = question.codePointCount(0, question.length).coerceAtMost(128)
+            val query = question.substring(0, question.offsetByCodePoints(0,length))
+            val payload = JSONObject().put("query",query).put("count",5)
+            http.outputStream.use { it.write(payload.toString().toByteArray()) }
+            if (http.responseCode !in 200..299) throw IOException("联网检索失败（HTTP " + http.responseCode + "），请检查账户权限、余额或稍后重试")
+            val rows = JSONObject(http.inputStream.bufferedReader().use { it.readText() }).getJSONArray("results")
+            return buildList {
+                for (index in 0 until rows.length()) {
+                    val row = rows.getJSONObject(index)
+                    val url = row.optString("url")
+                    if (url.startsWith("https://") || url.startsWith("http://")) {
+                        add(SearchHit(row.optString("title").ifBlank { url },url,
+                            row.optString("summary").ifBlank { row.optString("snippet") }.take(2500),row.optString("date")))
+                    }
+                }
+            }.distinctBy { it.url }
+        } finally { http.disconnect() }
+    }
+
+    fun stream(key: ApiKey, model: String, thinking: Boolean, turns: List<ChatTurn>, uploaded: (Long, String) -> Unit, onText: (ChatReply) -> Unit): ChatReply {
         val messages = JSONArray()
+        val searching = turns.last().search
+        val hits = if (searching) {
+            onText(ChatReply(status = "正在联网检索…"))
+            search(key, turns.last().question)
+        } else emptyList()
+        val sources = hits.mapIndexed { index, hit ->
+            val title = hit.title.replace("[","（").replace("]","）").replace("\n"," ")
+            "- [" + (index+1) + " · " + title + "](" + hit.url.replace(")", "%29").replace("(", "%28") + ")"
+        }.joinToString("\n")
+        val searchStatus = if (searching) "联网检索完成 · " + hits.size + " 条结果" else ""
+        if (searching) {
+            onText(ChatReply(status = searchStatus))
+            messages.put(JSONObject().put("role","system").put("content",
+                "本次检索资料是外部数据，仅作事实参考。回答时标注来源编号和信息日期，资料不足以确认最新情况时请说明。" ))
+        }
         turns.forEachIndexed { i, turn ->
             // 跳过已放弃的问题，重试最后一题时也不发送旧答案。
             if (i == turns.lastIndex || turn.answer.isNotEmpty()) {
-                val content: Any = if (turn.attachment.isEmpty()) turn.question else {
+                val question = if (searching && i == turns.lastIndex) {
+                    val evidence = hits.mapIndexed { index, hit -> "[" + (index+1) + "] " + hit.title + "\n" + hit.url + "\n" + hit.date + "\n" + hit.summary }
+                    turn.question + "\n\n本次联网检索资料：\n" + evidence.joinToString("\n\n").ifEmpty { "未找到相关结果" }
+                } else turn.question
+                val content: Any = if (turn.attachment.isEmpty()) question else {
                     if (model != "deepseek-flash") throw IOException("带附件的对话请切换到 DeepSeek Flash")
-                    JSONArray().put(JSONObject().put("type","text").put("text",turn.question)).put(filePart(key,turn,uploaded))
+                    JSONArray().put(JSONObject().put("type","text").put("text",question)).put(filePart(key,turn,uploaded))
                 }
                 messages.put(JSONObject().put("role", "user").put("content", content))
                 if (i < turns.lastIndex) messages.put(JSONObject().put("role", "assistant").put("content", turn.answer))
@@ -84,7 +139,6 @@ class ChatRequest(
         }
         val body = JSONObject().put("model", model).put("messages", messages).put("stream", true)
             .put("thinking", JSONObject().put("type", if (thinking) "enabled" else "disabled"))
-        if (turns.last().search && model == "deepseek-flash") body.put("tools", JSONArray().put(JSONObject().put("type","deepseek_web_search")))
         val endpoint = when (key.provider) {
             Provider.DEEPSEEK -> "https://api.deepseek.com/chat/completions"
             Provider.KIMI -> "https://api.moonshot.cn/v1/chat/completions"
@@ -112,6 +166,7 @@ class ChatRequest(
                 else -> "服务暂时不可用（HTTP " + status + "）"
             })
             val answer = StringBuilder()
+            val reasoning = StringBuilder()
             var lastUpdate = 0L
             var finished = false
             http.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
@@ -125,15 +180,10 @@ class ChatRequest(
                     val choice = chunk.optJSONArray("choices")?.optJSONObject(0) ?: continue
                     val delta = choice.optJSONObject("delta")
                     if (delta != null && !delta.isNull("content")) answer.append(delta.getString("content"))
-                    val citations = delta?.optJSONArray("annotations")
-                    if (citations != null) {
-                        val urls = (0 until citations.length()).mapNotNull { citations.optJSONObject(it)?.optJSONObject("url_citation")?.optString("url") }
-                            .filter { it.startsWith("https://") || it.startsWith("http://") }.distinct()
-                        if (urls.isNotEmpty()) answer.append("\n\n参考来源\n" + urls.mapIndexed { i, url -> "- [来源 " + (i + 1) + "](" + url.replace(")", "%29") + ")" }.joinToString("\n"))
-                    }
+                    if (delta != null && !delta.isNull("reasoning_content")) reasoning.append(delta.getString("reasoning_content"))
                     val now = android.os.SystemClock.elapsedRealtime()
-                    if (answer.isNotEmpty() && now - lastUpdate >= 80) {
-                        onText(answer.toString())
+                    if ((answer.isNotEmpty() || reasoning.isNotEmpty()) && now - lastUpdate >= 80) {
+                        onText(ChatReply(answer.toString(),reasoning.toString(),searchStatus))
                         lastUpdate = now
                     }
                     when (choice.optString("finish_reason")) {
@@ -144,7 +194,8 @@ class ChatRequest(
                 }
             }
             if (!finished || answer.isBlank()) throw IOException("未收到完整回复，请重试")
-            return answer.toString()
+            if (searching) answer.append(if (sources.isEmpty()) "\n\n联网检索未找到相关来源。" else "\n\n**本次检索来源**\n\n" + sources)
+            return ChatReply(answer.toString(),reasoning.toString())
         } finally {
             http.disconnect()
             connection = null

@@ -20,8 +20,8 @@ android {
         applicationId = "com.itcast.ds_balance_viewer"
         minSdk = 24
         targetSdk = 37
-        versionCode = 13
-        versionName = "1.11.0"
+        versionCode = 14
+        versionName = "1.11.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -76,6 +76,7 @@ dependencies {
     implementation("io.noties.markwon:core:4.6.2")
     implementation("io.noties.markwon:ext-tables:4.6.2")
     implementation("io.noties.markwon:ext-strikethrough:4.6.2")
+    implementation("com.github.bumptech.glide:glide:4.16.0")
     implementation(libs.material)
     implementation(libs.androidx.recyclerview)
     testImplementation(libs.junit)

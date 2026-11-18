@@ -4,9 +4,11 @@ import android.content.Intent
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.net.Uri
-import android.app.Dialog
+import androidx.drawerlayout.widget.DrawerLayout
+import androidx.activity.OnBackPressedCallback
+import com.bumptech.glide.Glide
+import com.bumptech.glide.load.engine.DiskCacheStrategy
 import android.widget.*
-import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
@@ -44,6 +46,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private var binding: FragmentChatBinding? = null
     private val chat by lazy { ViewModelProvider(this)[ChatViewModel::class.java] }
     private var displayed: List<ChatTurn>? = null
+    private var liveReasoning: TextView? = null
     private var lastReply: TextView? = null
 
     private var pending = ""
@@ -81,19 +84,25 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         camera?.let { if (ok) stage(it,"拍摄照片.jpg") else requireContext().contentResolver.delete(it,null,null) }
         camera = null
     }
-    private val dictate = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (it.resultCode == android.app.Activity.RESULT_OK) it.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { words ->
-            binding?.input?.append(words)
-        }
-    }
     private fun stage(uri: Uri, name: String) {
-        pending = JSONObject().put("uri",uri.toString()).put("name",name).toString()
+        pending = JSONObject().put("uri",uri.toString()).put("name",name)
+            .put("mime",requireContext().contentResolver.getType(uri).orEmpty()).toString()
         showAttachment()
     }
     private fun showAttachment() {
-        val v = binding?.attachment ?: return
-        v.isVisible = pending.isNotEmpty()
-        if (pending.isNotEmpty()) v.text = "📎  " + JSONObject(pending).getString("name") + "    ×"
+        val b = binding ?: return
+        val item = pending.takeIf { it.isNotEmpty() }?.let(::JSONObject)
+        val name = item?.optString("name").orEmpty()
+        val image = item?.optString("mime")?.startsWith("image/") == true ||
+            name.substringAfterLast('.').lowercase() in setOf("jpg","jpeg","png","gif","webp","heic","heif")
+        b.previewRow.isVisible = image
+        b.attachment.isVisible = item != null && !image
+        Glide.with(this).clear(b.thumbnail)
+        if (image && item != null) {
+            Glide.with(this).load(Uri.parse(item.getString("uri"))).override(dp(160)).centerCrop()
+                .transform(com.bumptech.glide.load.resource.bitmap.CenterCrop(),com.bumptech.glide.load.resource.bitmap.RoundedCorners(dp(10)))
+                .diskCacheStrategy(DiskCacheStrategy.NONE).error(android.R.drawable.ic_menu_gallery).into(b.thumbnail)
+        } else b.attachment.text = "📎  " + name + "    ×"
     }
     private fun attachments() {
         val ctx = requireContext()
@@ -135,25 +144,46 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         camera = savedInstanceState?.getString("camera")?.let(Uri::parse) ?: camera
         showAttachment()
         b.attachment.setOnClickListener { pending = ""; showAttachment() }
+        b.removePhoto.setOnClickListener { pending = ""; showAttachment() }
         b.attach.setOnClickListener { attachments() }
-        b.voice.setOnClickListener {
-            runCatching { dictate.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)) }
-                .onFailure { toast("这台设备缺少系统语音识别服务") }
+        val toolbarHeight = b.header.layoutParams.height
+        b.historyPanel.layoutParams = b.historyPanel.layoutParams.apply { width = (resources.displayMetrics.widthPixels * .82f).toInt() }
+        val back = object : OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() { b.root.closeDrawer(b.historyPanel) }
         }
+        requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner,back)
+        b.root.setScrimColor(android.graphics.Color.TRANSPARENT)
+        b.root.drawerElevation = 0f
+        b.root.addDrawerListener(object : DrawerLayout.SimpleDrawerListener() {
+            override fun onDrawerSlide(drawerView: View, slideOffset: Float) {
+                val direction = if (b.root.layoutDirection == View.LAYOUT_DIRECTION_RTL) -1 else 1
+                b.chatPage.translationX = drawerView.width * slideOffset * direction
+                val lightTheme = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK != android.content.res.Configuration.UI_MODE_NIGHT_YES
+                if (!isHidden) androidx.core.view.WindowCompat.getInsetsController(requireActivity().window,b.root)
+                    .isAppearanceLightStatusBars = lightTheme && slideOffset > 0.5f
+                back.isEnabled = !isHidden && slideOffset > 0f
+            }
+            override fun onDrawerOpened(drawerView: View) { refreshHistory() }
+            override fun onDrawerClosed(drawerView: View) {
+                requireContext().getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(drawerView.windowToken,0)
+                b.historySearch.clearFocus()
+            }
+        })
+        b.historySearch.doAfterTextChanged { refreshHistory() }
         ViewCompat.setOnApplyWindowInsetsListener(view) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
             view.setPadding(bars.left, 0, bars.right, (keyboard - bars.bottom).coerceAtLeast(0))
             b.header.setPadding(b.header.paddingLeft, bars.top, b.header.paddingRight, 0)
-            if (b.header.height != dp(60) + bars.top) b.header.layoutParams = b.header.layoutParams.apply { height = dp(60) + bars.top }
+            if (b.header.layoutParams.height != toolbarHeight + bars.top) b.header.layoutParams = b.header.layoutParams.apply { height = toolbarHeight + bars.top }
+            b.historyPanel.setPadding(dp(16),bars.top,dp(16),0)
             insets
         }
         b.setup.setOnClickListener { settings() }
         b.settings.setOnClickListener { settings() }
         b.model.setOnClickListener { settings() }
         b.newChat.setOnClickListener { chat.open(); b.input.text.clear(); pending = ""; showAttachment() }
-        b.history.setOnClickListener { showHistory() }
+        b.history.setOnClickListener { refreshHistory(); b.root.openDrawer(b.historyPanel) }
         b.thinking.isChecked = ChatPreferences.thinking
         b.thinking.setOnCheckedChangeListener { _, value -> ChatPreferences.thinking = value }
         b.send.setOnClickListener {
@@ -165,7 +195,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                     ChatPreferences.key == null -> settings()
                     pending.isNotEmpty() && !flash() -> toast("请在对话设置中选择 DeepSeek Flash 发送附件")
                     question.isEmpty() && pending.isEmpty() -> b.input.requestFocus()
-                    chat.send(question.ifEmpty { "请分析这个附件" }, attachment = pending, search = flash() && b.search.isChecked) -> {
+                    chat.send(question.ifEmpty { "请分析这个附件" }, attachment = pending, search = searchSupported() && b.search.isChecked) -> {
                         pending = ""; showAttachment()
                         b.input.text.clear()
                         requireContext().getSystemService(InputMethodManager::class.java)
@@ -178,15 +208,19 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     }
 
     override fun onResume() { super.onResume(); refreshKey() }
-    override fun onHiddenChanged(hidden: Boolean) { super.onHiddenChanged(hidden); if (!hidden) refreshKey() }
+    override fun onHiddenChanged(hidden: Boolean) { super.onHiddenChanged(hidden); if (!hidden) refreshKey() else {
+        binding?.root?.closeDrawers()
+        activity?.let { androidx.core.view.WindowCompat.getInsetsController(it.window,it.window.decorView).isAppearanceLightStatusBars = false }
+    } }
 
+    private fun searchSupported() = ChatPreferences.key?.provider == com.itcast.ds_balance_viewer.data.Provider.DEEPSEEK
     private fun flash() = ChatPreferences.key?.let { ChatPreferences.model(it.provider) } == "deepseek-flash"
     private fun refreshKey() {
         val b = binding ?: return
         val key = ChatPreferences.key
         b.model.text = chat.state.value?.turns?.firstOrNull()?.question ?: key?.let { ChatPreferences.model(it.provider) } ?: "对话"
-        b.search.isEnabled = flash() && !running
-        if (!flash()) b.search.isChecked = false
+        b.search.isEnabled = searchSupported() && !running
+        if (!searchSupported()) b.search.isChecked = false
         b.setup.isVisible = key == null
     }
 
@@ -235,68 +269,42 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
 
     private fun addKey() = startActivity(Intent(requireContext(), AddKeyActivity::class.java))
 
-    private fun showHistory() {
+    private fun refreshHistory() {
+        val b = binding ?: return
         val ctx = requireContext()
-        val dialog = Dialog(ctx)
-        val panel = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(ctx.getColor(R.color.ds_card))
-            setPadding(dp(16),dp(20),dp(16),dp(12))
-            isFocusableInTouchMode = true
+        val rows = b.historyRows
+        val search = b.historySearch
+        rows.removeAllViews()
+        val today = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY,0); set(Calendar.MINUTE,0); set(Calendar.SECOND,0); set(Calendar.MILLISECOND,0) }
+        val yesterday = (today.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR,-1) }
+        val groups = chat.sessions(search.text.toString()).groupBy {
+            when { it.pinned -> "置顶"; it.updated >= today.timeInMillis -> "今天"; it.updated >= yesterday.timeInMillis -> "昨天"; else -> "更早" }
         }
-        val search = EditText(ctx).apply {
-            hint = "搜索对话内容…"
-            setSingleLine()
-            textSize = 16f
-            setPadding(dp(16),0,dp(12),0)
-            setBackgroundResource(R.drawable.chat_bubble)
-        }
-        panel.addView(search,-1,dp(48))
-        val rows = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
-        panel.addView(ScrollView(ctx).apply { addView(rows) },LinearLayout.LayoutParams(-1,0,1f))
-        fun refresh() {
-            rows.removeAllViews()
-            val today = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY,0); set(Calendar.MINUTE,0); set(Calendar.SECOND,0); set(Calendar.MILLISECOND,0) }
-            val yesterday = (today.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR,-1) }
-            val groups = chat.sessions(search.text.toString()).groupBy {
-                when { it.pinned -> "置顶"; it.updated >= today.timeInMillis -> "今天"; it.updated >= yesterday.timeInMillis -> "昨天"; else -> "更早" }
-            }
-            if (groups.isEmpty()) rows.addView(TextView(ctx).apply { text = if (search.length() > 0) "没有匹配的对话" else "暂无历史对话"; setPadding(0,dp(24),0,0) })
-            groups.forEach { (group, items) ->
-                rows.addView(TextView(ctx).apply { text = group; textSize = 13f; setPadding(dp(6),dp(22),0,dp(6)) })
-                items.forEach { item ->
-                    val title = TextView(ctx).apply {
-                        text = item.title; textSize = 17f; gravity = Gravity.CENTER_VERTICAL
-                        maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
-                        setPadding(dp(6),0,dp(6),0)
-                        setTextColor(binding!!.input.currentTextColor)
-                        setOnClickListener {
-                            chat.open(item.id); pending = ""; showAttachment()
-                            binding?.input?.text?.clear(); dialog.dismiss()
-                        }
-                        setOnLongClickListener {
-                            AlertDialog.Builder(ctx).setItems(arrayOf(if (item.pinned) "取消置顶" else "置顶","删除对话")) { _, choice ->
-                                if (choice == 0) { chat.pin(item); refresh() }
-                                else AlertDialog.Builder(ctx).setMessage("删除这段对话和所有回答版本？")
-                                    .setNegativeButton("取消",null).setPositiveButton("删除") { _, _ -> chat.delete(item.id); refresh() }.show()
-                            }.show()
-                            true
-                        }
+        if (groups.isEmpty()) rows.addView(TextView(ctx).apply { text = if (search.length() > 0) "没有匹配的对话" else "暂无历史对话"; setPadding(0,dp(24),0,0) })
+        groups.forEach { (group, items) ->
+            rows.addView(TextView(ctx).apply { text = group; textSize = 13f; setPadding(dp(6),dp(22),0,dp(6)) })
+            items.forEach { item ->
+                val title = TextView(ctx).apply {
+                    text = item.title; textSize = 17f; gravity = Gravity.CENTER_VERTICAL
+                    maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
+                    setPadding(dp(6),0,dp(6),0)
+                    setTextColor(binding!!.input.currentTextColor)
+                    setOnClickListener {
+                        chat.open(item.id); pending = ""; showAttachment()
+                        b.input.text.clear(); b.root.closeDrawer(b.historyPanel)
                     }
-                    rows.addView(title,-1,dp(52))
+                    setOnLongClickListener {
+                        AlertDialog.Builder(ctx).setItems(arrayOf(if (item.pinned) "取消置顶" else "置顶","删除对话")) { _, choice ->
+                            if (choice == 0) { chat.pin(item); refreshHistory() }
+                            else AlertDialog.Builder(ctx).setMessage("删除这段对话和所有回答版本？")
+                                .setNegativeButton("取消",null).setPositiveButton("删除") { _, _ -> chat.delete(item.id); refreshHistory() }.show()
+                        }.show()
+                        true
+                    }
                 }
+                rows.addView(title,-1,dp(52))
             }
         }
-        search.doAfterTextChanged { refresh() }
-        refresh()
-        dialog.setContentView(panel)
-        dialog.window?.apply {
-            setBackgroundDrawableResource(android.R.color.transparent)
-            setGravity(Gravity.START)
-            setLayout((resources.displayMetrics.widthPixels * 0.82).toInt(),-1)
-            setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
-        }
-        dialog.show()
     }
 
     private fun actions(turn: ChatTurn) {
@@ -331,7 +339,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,turn.answer),"分享回答"))
             }
         }
-        action("重新生成",R.drawable.ic_refresh) { if (!chat.send(null,turn.id)) settings() }
+        action("重新生成",R.drawable.ic_refresh) { if (!chat.send(null,turn.id,search = b.search.isChecked && searchSupported())) settings() }
         b.messages.addView(HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false; addView(row) })
     }
 
@@ -357,10 +365,28 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         val follow = displayed?.lastOrNull()?.id != state.turns.lastOrNull()?.id || !b.scroll.canScrollVertically(1)
         if (changed) {
             b.messages.removeAllViews()
+            liveReasoning = null
             lastReply = null
             for (turn in state.turns) {
                 val name = if (turn.attachment.isEmpty()) "" else "\n📎 " + JSONObject(turn.attachment).optString("name")
                 addMessage(turn.question + name, true)
+                val activeTurn = state.busy && state.target == turn.id
+                if (activeTurn || turn.reasoning.isNotBlank()) {
+                    val thought = addMessage("",false).apply {
+                        textSize = 14f
+                        setTextColor(b.notice.currentTextColor)
+                        setBackgroundResource(R.drawable.chat_bubble)
+                    }
+                    if (activeTurn) liveReasoning = thought
+                    else {
+                        thought.text = "查看思考过程  ▾"
+                        var expanded = false
+                        thought.setOnClickListener {
+                            expanded = !expanded
+                            thought.text = if (expanded) "收起思考过程  ▴\n\n" + turn.reasoning else "查看思考过程  ▾"
+                        }
+                    }
+                }
                 val reply = addMessage("", false)
                 if (state.busy && state.target == turn.id) lastReply = reply
                 else {
@@ -373,18 +399,26 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         val answer = if (state.busy) state.partial.ifEmpty {
             if (ChatPreferences.thinking) "思考中…" else "正在回复…"
         } else state.turns.lastOrNull()?.answer.orEmpty().ifEmpty { "尚未完成回复" }
+        liveReasoning?.apply {
+            isVisible = state.reasoning.isNotBlank()
+            text = "思考过程\n\n" + state.reasoning
+        }
         lastReply?.let { markdown.setMarkdown(it,answer) }
         refreshKey()
         b.welcome.isVisible = state.turns.isEmpty()
         b.notice.text = state.notice
         b.notice.isVisible = state.notice.isNotEmpty()
         b.attach.isEnabled = !state.busy
-        b.search.isEnabled = !state.busy && flash()
+        b.search.isEnabled = !state.busy && searchSupported()
         b.settings.isEnabled = !state.busy
         b.model.isEnabled = !state.busy
         b.thinking.isEnabled = !state.busy
         b.newChat.isEnabled = !state.busy
         b.history.isEnabled = !state.busy
+        if (changed) {
+            b.root.setDrawerLockMode(if (state.busy) DrawerLayout.LOCK_MODE_LOCKED_CLOSED else DrawerLayout.LOCK_MODE_UNLOCKED)
+            refreshHistory()
+        }
         b.send.setImageResource(if (state.busy) R.drawable.ic_stop_chat else R.drawable.ic_send_chat)
         b.send.contentDescription = if (state.busy) "停止生成" else "发送"
         if (follow) b.scroll.post { b.scroll.scrollTo(0, b.messages.height) }
@@ -413,6 +447,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     override fun onDestroyView() {
         lastReply = null
         displayed = null
+        liveReasoning = null
         speech?.shutdown(); speech = null; speechReady = false
         binding = null
         super.onDestroyView()

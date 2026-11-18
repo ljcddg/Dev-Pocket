@@ -67,8 +67,6 @@ class MainActivity : AppCompatActivity() {
 
     /** 显示指定 tag 的 Fragment，隐藏其余 */
     private fun showTab(tag: String, factory: () -> Fragment) {
-        val light = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) != android.content.res.Configuration.UI_MODE_NIGHT_YES
-        androidx.core.view.WindowCompat.getInsetsController(window, binding.root).isAppearanceLightStatusBars = tag == "frag_chat" && light
         val fm = supportFragmentManager
         val transaction = fm.beginTransaction()
         fm.fragments.forEach { if (it.tag != tag) transaction.hide(it) }
